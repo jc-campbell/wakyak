@@ -1,36 +1,17 @@
 import { prisma } from "@wakyak/database";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { importPKCS8, SignJWT } from "jose";
 
 import type { Env } from "../config/env.js";
 import type { EmailService } from "./email.js";
 
-async function generateAppleClientSecret(env: Env): Promise<string> {
-  const key = await importPKCS8(env.applePrivateKey!, "ES256");
-  const now = Math.floor(Date.now() / 1_000);
-
-  return new SignJWT({})
-    .setProtectedHeader({ alg: "ES256", kid: env.APPLE_KEY_ID! })
-    .setIssuer(env.APPLE_TEAM_ID!)
-    .setSubject(env.APPLE_CLIENT_ID!)
-    .setAudience("https://appleid.apple.com")
-    .setIssuedAt(now)
-    .setExpirationTime(now + 180 * 24 * 60 * 60)
-    .sign(key);
-}
-
 export function createAuth(env: Env, emailService: EmailService) {
-  const trustedOrigins = env.APPLE_AUTH_ENABLED
-    ? [...env.trustedOrigins, "https://appleid.apple.com"]
-    : env.trustedOrigins;
-
   return betterAuth({
     appName: "WakYak",
     baseURL: env.BETTER_AUTH_URL,
     basePath: "/api/auth",
     secret: env.BETTER_AUTH_SECRET,
-    trustedOrigins,
+    trustedOrigins: env.trustedOrigins,
     database: prismaAdapter(prisma, { provider: "postgresql" }),
     emailAndPassword: {
       enabled: true,
@@ -68,7 +49,6 @@ export function createAuth(env: Env, emailService: EmailService) {
         trustedProviders: [
           "email-password",
           ...(env.GOOGLE_AUTH_ENABLED ? ["google"] : []),
-          ...(env.APPLE_AUTH_ENABLED ? ["apple"] : []),
         ],
       },
     },
@@ -79,17 +59,6 @@ export function createAuth(env: Env, emailService: EmailService) {
               clientId: env.GOOGLE_CLIENT_ID!,
               clientSecret: env.GOOGLE_CLIENT_SECRET!,
             },
-          }
-        : {}),
-      ...(env.APPLE_AUTH_ENABLED
-        ? {
-            apple: async () => ({
-              clientId: env.APPLE_CLIENT_ID!,
-              clientSecret: await generateAppleClientSecret(env),
-              ...(env.APPLE_APP_BUNDLE_IDENTIFIER
-                ? { appBundleIdentifier: env.APPLE_APP_BUNDLE_IDENTIFIER }
-                : {}),
-            }),
           }
         : {}),
     },

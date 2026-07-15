@@ -47,9 +47,6 @@ const redactionPaths = [
   "**.token",
   "resetToken",
   "verificationToken",
-  "privateKey",
-  "*.privateKey",
-  "**.privateKey",
 ];
 
 export async function buildApp(options: BuildAppOptions = {}) {

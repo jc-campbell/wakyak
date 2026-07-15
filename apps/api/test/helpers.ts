@@ -10,7 +10,6 @@ export const testEnv = loadEnv({
   ...process.env,
   NODE_ENV: "test",
   GOOGLE_AUTH_ENABLED: "false",
-  APPLE_AUTH_ENABLED: "false",
   EMAIL_MODE: "console",
 });
 

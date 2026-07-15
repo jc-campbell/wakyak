@@ -53,9 +53,6 @@ describe("environment validation", () => {
     expect(() => loadEnv({ ...base, GOOGLE_AUTH_ENABLED: "true" })).toThrow(
       /GOOGLE_CLIENT_ID/,
     );
-    expect(() => loadEnv({ ...base, APPLE_AUTH_ENABLED: "true" })).toThrow(
-      /APPLE_CLIENT_ID/,
-    );
   });
 
   it("rejects wildcard credentialed origins and insecure production", () => {

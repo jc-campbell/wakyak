@@ -1,7 +1,5 @@
 import "dotenv/config";
 
-import { readFileSync } from "node:fs";
-
 import { z } from "zod";
 
 const booleanFromString = z
@@ -38,13 +36,6 @@ const baseSchema = z.object({
   GOOGLE_AUTH_ENABLED: booleanFromString,
   GOOGLE_CLIENT_ID: optionalString,
   GOOGLE_CLIENT_SECRET: optionalString,
-  APPLE_AUTH_ENABLED: booleanFromString,
-  APPLE_CLIENT_ID: optionalString,
-  APPLE_TEAM_ID: optionalString,
-  APPLE_KEY_ID: optionalString,
-  APPLE_PRIVATE_KEY: optionalString,
-  APPLE_PRIVATE_KEY_FILE: optionalString,
-  APPLE_APP_BUNDLE_IDENTIFIER: optionalString,
   EMAIL_MODE: z.enum(["console", "brevo"]).default("console"),
   BREVO_API_KEY: optionalString,
   EMAIL_FROM_ADDRESS: optionalString,
@@ -53,7 +44,6 @@ const baseSchema = z.object({
 
 export type Env = z.infer<typeof baseSchema> & {
   trustedOrigins: string[];
-  applePrivateKey?: string;
 };
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
@@ -74,23 +64,6 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   ) {
     throw new Error(
       "Google authentication is enabled; GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required.",
-    );
-  }
-
-  let applePrivateKey = parsed.APPLE_PRIVATE_KEY?.replaceAll("\\n", "\n");
-  if (parsed.APPLE_PRIVATE_KEY_FILE) {
-    applePrivateKey = readFileSync(parsed.APPLE_PRIVATE_KEY_FILE, "utf8");
-  }
-
-  if (
-    parsed.APPLE_AUTH_ENABLED &&
-    (!parsed.APPLE_CLIENT_ID ||
-      !parsed.APPLE_TEAM_ID ||
-      !parsed.APPLE_KEY_ID ||
-      !applePrivateKey)
-  ) {
-    throw new Error(
-      "Apple authentication is enabled; APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, and either APPLE_PRIVATE_KEY or APPLE_PRIVATE_KEY_FILE are required.",
     );
   }
 
@@ -127,6 +100,5 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   return {
     ...parsed,
     trustedOrigins,
-    ...(applePrivateKey ? { applePrivateKey } : {}),
   };
 }

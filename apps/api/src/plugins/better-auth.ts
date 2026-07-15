@@ -52,17 +52,16 @@ export function registerBetterAuth(
         }),
       );
 
-      reply.hijack();
-      reply.raw.statusCode = response.status;
+      reply.code(response.status);
       response.headers.forEach((value, key) => {
-        if (key !== "set-cookie") reply.raw.setHeader(key, value);
+        if (key !== "set-cookie") reply.header(key, value);
       });
       const cookies = response.headers.getSetCookie();
-      if (cookies.length > 0) reply.raw.setHeader("set-cookie", cookies);
+      if (cookies.length > 0) reply.header("set-cookie", cookies);
       const responseBody = response.body
         ? Buffer.from(await response.arrayBuffer())
         : undefined;
-      reply.raw.end(responseBody);
+      return reply.send(responseBody);
     },
   });
 }

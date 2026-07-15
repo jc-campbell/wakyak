@@ -8,6 +8,7 @@ import {
   createTestApp,
   login,
   registerAndVerify,
+  testEnv,
 } from "./helpers.js";
 
 let app: FastifyInstance;
@@ -67,9 +68,13 @@ describe("email/password authentication", () => {
     const invalid = await app.inject({
       method: "POST",
       url: "/api/auth/sign-in/email",
+      headers: { origin: testEnv.trustedOrigins[0] },
       payload: { email, password: "not-the-password" },
     });
     expect(invalid.statusCode).toBe(401);
+    expect(invalid.headers["access-control-allow-origin"]).toBe(
+      testEnv.trustedOrigins[0],
+    );
     expect(cookiesFrom(invalid.headers)).toBe("");
 
     const cookie = await login(app, email, password);

@@ -1,6 +1,6 @@
-# WakYak backend
+# WakYak
 
-Backend-only TypeScript monorepo for WakYak. It contains a Fastify API, Better Auth, PostgreSQL through Prisma, transactional email, and the minimal public profile model. There is no frontend application in this repository.
+TypeScript monorepo for WakYak. It contains a Fastify API, Better Auth, PostgreSQL through Prisma, transactional email, the minimal public profile model, and a React/Vite testbed built with TanStack Router, TanStack Query, and shadcn/ui.
 
 ## Prerequisites
 
@@ -12,6 +12,7 @@ Backend-only TypeScript monorepo for WakYak. It contains a Fastify API, Better A
 
 ```text
 apps/api                    Fastify API, Better Auth, routes, and tests
+apps/web                    React testbed for auth, profile onboarding, and route guards
 packages/database           Prisma schema, migration, generated client boundary
 packages/database/prisma    Schema and committed migration history
 compose.yaml                Development PostgreSQL 17 service
@@ -42,14 +43,14 @@ pnpm db:migrate
 pnpm dev
 ```
 
-The default API origin is `http://localhost:4000`. `docker compose ps` should show the `postgres` service as healthy. `POSTGRES_PORT` can change the exposed host port; update `DATABASE_URL` to match.
+The default API origin is `http://localhost:4000` and the web app is `http://localhost:5173`. `docker compose ps` should show the `postgres` service as healthy. `POSTGRES_PORT` can change the exposed host port; update `DATABASE_URL` to match.
 
 The initial migration is `20260715030000_initial_auth_and_profile`. Migrations—not `prisma db push`—are the canonical database setup.
 
 ## Commands
 
 ```bash
-pnpm dev                 # watch the API
+pnpm dev                 # run the API and web app in watch mode
 pnpm build               # production TypeScript builds
 pnpm typecheck           # strict TypeScript checks
 pnpm lint                # typed ESLint checks
@@ -73,6 +74,7 @@ The ignored root `.env` is used locally. Deployment values belong in the host's 
 | `API_HOST`, `API_PORT`, `API_ORIGIN`                                 | Listen address and externally visible API origin                   |
 | `TRUST_PROXY`                                                        | Trust Fastify proxy headers; enable only behind a controlled proxy |
 | `TRUSTED_ORIGINS`                                                    | Comma-separated, explicit browser origins; `*` is rejected         |
+| `VITE_API_ORIGIN`                                                    | API origin compiled into the browser application                   |
 | `BODY_LIMIT_BYTES`                                                   | Maximum request body size                                          |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT` | Compose PostgreSQL settings                                        |
 | `DATABASE_URL`                                                       | Prisma PostgreSQL connection URL                                   |
@@ -80,17 +82,11 @@ The ignored root `.env` is used locally. Deployment values belong in the host's 
 | `SESSION_EXPIRES_IN_SECONDS`, `SESSION_UPDATE_AGE_SECONDS`           | Database session lifetime and refresh age                          |
 | `GOOGLE_AUTH_ENABLED`                                                | Configure Google only when `true`                                  |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                           | Google web OAuth client credentials                                |
-| `APPLE_AUTH_ENABLED`                                                 | Configure Apple only when `true`                                   |
-| `APPLE_CLIENT_ID`                                                    | Apple Service ID for the web flow                                  |
-| `APPLE_TEAM_ID`, `APPLE_KEY_ID`                                      | Apple developer team and Sign in with Apple key identifiers        |
-| `APPLE_PRIVATE_KEY`                                                  | `.p8` key with literal newlines or escaped `\n` sequences          |
-| `APPLE_PRIVATE_KEY_FILE`                                             | Alternative path to an untracked local `.p8` file                  |
-| `APPLE_APP_BUNDLE_IDENTIFIER`                                        | Optional native App ID audience for later native clients           |
 | `EMAIL_MODE`                                                         | `console` locally/tests or `brevo`                                 |
 | `BREVO_API_KEY`                                                      | Brevo transactional email key                                      |
 | `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME`                              | Verified Brevo sender                                              |
 
-If a provider flag is false, its empty credentials are allowed and the provider is not passed to Better Auth. If enabled, incomplete credentials fail startup. Production additionally requires HTTPS origins, Brevo mode, a strong auth secret, and non-placeholder database credentials.
+If Google authentication is disabled, empty Google credentials are allowed and the provider is not passed to Better Auth. If enabled, incomplete credentials fail startup. Production additionally requires HTTPS origins, Brevo mode, a strong auth secret, and non-placeholder database credentials.
 
 ## Routes
 
@@ -119,6 +115,8 @@ Application-owned routes are exactly:
 | `POST`  | `/v1/logout-all`                 | Required                  |
 
 Application errors use `{ "error": { "code", "message", "requestId" } }`. Better Auth keeps its native response format.
+
+The web testbed exposes `/`, `/sign-in`, `/sign-up`, `/profile`, and `/protected`. The final two require authentication, and `/protected` also requires a completed public profile.
 
 ## Backend-only manual test
 
@@ -202,25 +200,6 @@ Follow the current [Better Auth Google guide](https://www.better-auth.com/docs/a
 
 No live Google flow is claimed by the automated suite.
 
-## Sign in with Apple setup
-
-Follow the current [Better Auth Apple guide](https://www.better-auth.com/docs/authentication/apple) and Apple Developer portal:
-
-1. Create an App ID and enable Sign in with Apple.
-2. Create a **Service ID** for the web flow; this is `APPLE_CLIENT_ID`.
-3. Associate the Service ID with the primary App ID.
-4. Configure `wakyak.onrender.com` under Domains and Subdomains.
-5. Configure `https://wakyak.onrender.com/api/auth/callback/apple` as the Return URL.
-6. Create a Sign in with Apple key, download the `.p8` file once, and record its Key ID and the account Team ID.
-7. Store the `.p8` contents in `APPLE_PRIVATE_KEY` or point `APPLE_PRIVATE_KEY_FILE` at an ignored file. Set the remaining Apple variables and `APPLE_AUTH_ENABLED=true`.
-8. Restart, initiate the Better Auth social sign-in endpoint with provider `apple`, complete the browser flow, then verify the session through `/v1/me`.
-
-The configured provider dynamically signs Apple's ES256 client-secret JWT and rotates it on process/configuration re-creation. Apple web Return URLs require HTTPS and do not support a plain localhost Return URL. For local end-to-end testing, use a stable HTTPS tunnel, add its domain and exact `/api/auth/callback/apple` Return URL in Apple Developer, and set `BETTER_AUTH_URL`/`API_ORIGIN` to that tunnel. `http://localhost:4000/api/auth/callback/apple` is the route shape but is not an Apple-acceptable web Return URL.
-
-`APPLE_APP_BUNDLE_IDENTIFIER` is needed only when a future native client sends Apple ID tokens whose audience is the native App ID.
-
-No live Apple flow is claimed by the automated suite.
-
 ## Brevo setup
 
 1. Create a Brevo account and verify the sender/domain under Brevo's sender configuration.
@@ -233,7 +212,7 @@ Brevo mode never logs the sensitive verification/reset URL. No live Brevo delive
 
 ## Deployment-like Render configuration
 
-Use `https://wakyak.onrender.com` for `API_ORIGIN`, `BETTER_AUTH_URL`, and the OAuth callbacks above. Set `API_HOST=0.0.0.0`, map `API_PORT` to the port Render expects, set `TRUST_PROXY=true` only because the service is behind Render's controlled proxy, and supply explicit browser origins in `TRUSTED_ORIGINS`. Apply migrations with `pnpm db:migrate:deploy` before starting `pnpm --filter @wakyak/api start`.
+Use `https://wakyak.onrender.com` for `API_ORIGIN`, `BETTER_AUTH_URL`, and the Google OAuth callback above. Set `API_HOST=0.0.0.0`, map `API_PORT` to the port Render expects, set `TRUST_PROXY=true` only because the service is behind Render's controlled proxy, and supply explicit browser origins in `TRUSTED_ORIGINS`. Apply migrations with `pnpm db:migrate:deploy` before starting `pnpm --filter @wakyak/api start`.
 
 ## Common failures
 
@@ -243,7 +222,6 @@ Use `https://wakyak.onrender.com` for `API_ORIGIN`, `BETTER_AUTH_URL`, and the O
 - **OAuth redirect mismatch:** `BETTER_AUTH_URL` must be the externally visible API origin and the exact callback must be allowlisted at the provider.
 - **Redirect rejected:** callback URLs are restricted by Better Auth's trusted origins.
 - **Wrong scheme behind a proxy:** set the public HTTPS origins explicitly and enable `TRUST_PROXY` only for the controlled deployment proxy.
-- **Apple fails locally:** Apple web authentication requires a configured HTTPS domain/Return URL; use a tunnel rather than plain localhost.
 - **Database isn't ready:** wait for `docker compose ps` to report healthy, verify `DATABASE_URL`, then run `pnpm db:migrate:deploy`.
 
 For security expectations and secret handling, see [SECURITY.md](./SECURITY.md).

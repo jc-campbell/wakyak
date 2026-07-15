@@ -11,13 +11,12 @@ Never commit:
 - `BETTER_AUTH_SECRET`
 - database production credentials or connection URLs
 - Google client secrets
-- Apple `.p8` private keys or generated client-secret JWTs
 - Brevo API keys
 - session cookies or tokens
 - verification or password-reset URLs/tokens
 - provider access, refresh, or ID tokens
 
-The root `.env`, `cookies.txt`, generated logs, and local Apple key files are ignored. Use the deployment platform's secret manager outside local development. Rotate a secret immediately if it is exposed.
+The root `.env`, `cookies.txt`, and generated logs are ignored. Use the deployment platform's secret manager outside local development. Rotate a secret immediately if it is exposed.
 
 ## Session assumptions
 
@@ -35,11 +34,7 @@ Production validation requires HTTPS origins, Brevo email, a strong Better Auth 
 
 OAuth provider configuration is omitted unless its explicit flag is enabled. Better Auth performs OAuth code and ID-token validation. The application does not reimplement it. Implicit provider linking is restricted to trusted configured providers and retains Better Auth's local-email-verification ownership gate; explicit linking requires an authenticated session.
 
-Use a Google Web application client and restrict its redirect URIs. For Apple web authentication, use a Service ID associated with the correct primary App ID. Restrict domains and Return URLs to controlled HTTPS origins. Remove unused provider credentials and rotate them on personnel or ownership changes.
-
-## Apple private keys
-
-Apple `.p8` keys should be stored in a secret manager or an ignored file with restrictive filesystem permissions. `APPLE_PRIVATE_KEY_FILE` is preferable for local multiline handling; `APPLE_PRIVATE_KEY` supports literal newlines or escaped `\n`. Apple keys are downloadable only once, so protect the original and revoke/reissue it if exposure is suspected. Never log the key or the generated client-secret JWT.
+Use a Google Web application client and restrict its redirect URIs to controlled origins. Remove unused provider credentials and rotate them on personnel or ownership changes.
 
 ## Email and sensitive links
 
@@ -47,7 +42,7 @@ Console mode deliberately exposes verification and reset URLs for local testing 
 
 ## Logging and responses
 
-Structured logs redact authorization/cookie headers, response cookies, passwords, client secrets, API keys, OAuth codes/tokens, reset and verification tokens, and private keys. Auth request bodies are not explicitly logged. Application errors suppress Prisma errors, SQL, connection strings, constraint names, and stack traces. Public profile serializers allow only `userId`, `handle`, and `displayName`.
+Structured logs redact authorization/cookie headers, response cookies, passwords, client secrets, API keys, OAuth codes/tokens, and reset and verification tokens. Auth request bodies are not explicitly logged. Application errors suppress Prisma errors, SQL, connection strings, constraint names, and stack traces. Public profile serializers allow only `userId`, `handle`, and `displayName`.
 
 ## Dependency maintenance
 
