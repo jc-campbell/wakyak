@@ -74,7 +74,7 @@ The ignored root `.env` is used locally. Deployment values belong in the host's 
 | `API_HOST`, `API_PORT`, `API_ORIGIN`                                 | Listen address and externally visible API origin                   |
 | `TRUST_PROXY`                                                        | Trust Fastify proxy headers; enable only behind a controlled proxy |
 | `TRUSTED_ORIGINS`                                                    | Comma-separated, explicit browser origins; `*` is rejected         |
-| `VITE_API_ORIGIN`                                                    | API origin compiled into the browser application                   |
+| `VITE_API_ORIGIN`                                                    | Local-development API origin used by the browser application       |
 | `BODY_LIMIT_BYTES`                                                   | Maximum request body size                                          |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT` | Compose PostgreSQL settings                                        |
 | `DATABASE_URL`                                                       | Prisma PostgreSQL connection URL                                   |
@@ -210,9 +210,23 @@ No live Google flow is claimed by the automated suite.
 
 Brevo mode never logs the sensitive verification/reset URL. No live Brevo delivery is claimed by the automated suite.
 
-## Deployment-like Render configuration
+## Render configuration
 
-Use `https://wakyak.onrender.com` for `API_ORIGIN`, `BETTER_AUTH_URL`, and the Google OAuth callback above. Set `API_HOST=0.0.0.0`, map `API_PORT` to the port Render expects, set `TRUST_PROXY=true` only because the service is behind Render's controlled proxy, and supply explicit browser origins in `TRUSTED_ORIGINS`. Apply migrations with `pnpm db:migrate:deploy` before starting `pnpm --filter @wakyak/api start`.
+Deploy one Render web service. The Fastify API serves the compiled Vite application and its client-side route fallback, keeping browser, API, and authentication requests on the same origin.
+
+Use this build command:
+
+```bash
+pnpm install --frozen-lockfile && pnpm db:generate && pnpm build
+```
+
+On a free service, apply migrations in the start command:
+
+```bash
+pnpm db:migrate:deploy && API_HOST=0.0.0.0 API_PORT=$PORT pnpm --filter @wakyak/api start
+```
+
+Use `https://wakyak.onrender.com` for `API_ORIGIN`, `BETTER_AUTH_URL`, `TRUSTED_ORIGINS`, and the Google OAuth callback above. Set `TRUST_PROXY=true` because the service is behind Render's controlled proxy. Do not set `VITE_API_ORIGIN` in production; production web builds always use their own origin. A separate Render static-site service and cross-origin production cookies are not required.
 
 ## Common failures
 

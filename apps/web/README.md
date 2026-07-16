@@ -12,4 +12,6 @@ React and Vite client for exercising the WakYak backend. It uses code-based TanS
 
 The authenticated route guard reads `/v1/me`. A signed-in user with `profile: null` is redirected to `/profile` before protected content renders.
 
-From the repository root, run `pnpm dev`. The web app defaults to `http://localhost:5173` and reads the API origin from `VITE_API_ORIGIN`.
+From the repository root, run `pnpm dev`. The web app defaults to `http://localhost:5173` and reads the development API origin from `VITE_API_ORIGIN`.
+
+Production builds use the page's own origin for API and authentication requests. The Fastify service serves `apps/web/dist`, including an `index.html` fallback for client-side routes, so production does not require a separate static-site service.

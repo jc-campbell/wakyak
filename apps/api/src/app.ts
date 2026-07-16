@@ -2,8 +2,10 @@ import cors from "@fastify/cors";
 import formbody from "@fastify/formbody";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
+import staticFiles from "@fastify/static";
 import { prisma, type PrismaClient } from "@wakyak/database";
 import Fastify, { type FastifyServerOptions } from "fastify";
+import { fileURLToPath } from "node:url";
 import {
   serializerCompiler,
   validatorCompiler,
@@ -24,7 +26,13 @@ export interface BuildAppOptions {
   auth?: Auth;
   emailService?: EmailService;
   logger?: FastifyServerOptions["logger"];
+  serveWeb?: boolean;
+  webRoot?: string;
 }
+
+const defaultWebRoot = fileURLToPath(
+  new URL("../../web/dist", import.meta.url),
+);
 
 const redactionPaths = [
   "req.headers.authorization",
@@ -101,10 +109,50 @@ export async function buildApp(options: BuildAppOptions = {}) {
   registerSystemRoutes(app, database);
   registerProfileRoutes(app, database);
 
+  const serveWeb = options.serveWeb ?? env.NODE_ENV === "production";
+  if (serveWeb) {
+    await app.register(staticFiles, {
+      root: options.webRoot ?? defaultWebRoot,
+      wildcard: false,
+      setHeaders(reply, filePath) {
+        if (filePath.endsWith("index.html")) {
+          reply.header("cache-control", "no-cache");
+        } else if (filePath.includes("/assets/")) {
+          reply.header("cache-control", "public, max-age=31536000, immutable");
+        }
+      },
+    });
+  }
+
   app.setNotFoundHandler(async (request, reply) => {
     if (request.url.startsWith("/api/auth/")) {
       return reply.code(404).send({ message: "Not Found" });
     }
+
+    const pathname = request.url.split("?", 1)[0] ?? request.url;
+    const isBackendPath =
+      pathname === "/api" ||
+      pathname.startsWith("/api/") ||
+      pathname === "/v1" ||
+      pathname.startsWith("/v1/") ||
+      pathname === "/health" ||
+      pathname === "/ready";
+    const acceptsHtml = request.headers.accept
+      ?.split(",")
+      .some((value) => value.trim().startsWith("text/html"));
+
+    if (
+      serveWeb &&
+      !isBackendPath &&
+      (request.method === "GET" || request.method === "HEAD") &&
+      acceptsHtml
+    ) {
+      return reply
+        .code(200)
+        .type("text/html")
+        .sendFile("index.html", { maxAge: 0, immutable: false });
+    }
+
     return reply.code(404).send({
       error: {
         code: "NOT_FOUND",

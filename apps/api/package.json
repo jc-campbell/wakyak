@@ -18,6 +18,7 @@
     "@fastify/formbody": "^8.0.2",
     "@fastify/helmet": "^13.1.0",
     "@fastify/rate-limit": "^11.1.0",
+    "@fastify/static": "^10.1.0",
     "@getbrevo/brevo": "^6.0.2",
     "@wakyak/database": "workspace:*",
     "better-auth": "^1.6.23",
