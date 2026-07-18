@@ -17,5 +17,26 @@ services:
       retries: 12
       start_period: 5s
 
+  s3mock:
+    image: adobe/s3mock:5.1.0
+    restart: unless-stopped
+    environment:
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: ${S3_BUCKET:-wakyak-attachments}
+      COM_ADOBE_TESTING_S3MOCK_STORE_REGION: ${S3_REGION:-us-east-1}
+      COM_ADOBE_TESTING_S3MOCK_STORE_ROOT: /data
+      COM_ADOBE_TESTING_S3MOCK_STORE_RETAIN_FILES_ON_EXIT: "true"
+    ports:
+      - "127.0.0.1:${S3MOCK_PORT:-9090}:9090"
+    volumes:
+      - s3mock-data:/data
+    healthcheck:
+      test:
+        ["CMD", "wget", "--spider", "-q", "http://localhost:9090/favicon.ico"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
 volumes:
   postgres-data:
+  s3mock-data:

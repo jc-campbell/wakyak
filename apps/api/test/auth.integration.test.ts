@@ -27,10 +27,20 @@ describe("email/password authentication", () => {
   it("signs up, captures and resends verification, verifies, logs in, and logs out", async () => {
     const email = "auth-flow@example.com";
     const password = "correct-horse-battery-staple";
+    const invitation = await prisma.invitation.create({
+      data: { code: "0123456789ABCDEF" },
+    });
+    const redemption = await app.inject({
+      method: "POST",
+      url: "/v1/invitations/redeem",
+      payload: { code: invitation.code },
+    });
+    const invitationCookie = cookiesFrom(redemption.headers);
     const signup = await app.inject({
       method: "POST",
       url: "/api/auth/sign-up/email",
       payload: { name: "Auth Flow", email, password },
+      headers: { cookie: invitationCookie },
     });
     expect(signup.statusCode).toBe(200);
     expect(emailService.messages).toHaveLength(1);

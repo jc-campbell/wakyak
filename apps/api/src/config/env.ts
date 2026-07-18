@@ -22,6 +22,11 @@ const baseSchema = z.object({
   API_ORIGIN: z.url().default("http://localhost:4000"),
   TRUST_PROXY: booleanFromString,
   TRUSTED_ORIGINS: z.string().min(1).default("http://localhost:5173"),
+  VITE_TAILSCALE_HOST: z
+    .string()
+    .trim()
+    .regex(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i)
+    .optional(),
   BODY_LIMIT_BYTES: z.coerce
     .number()
     .int()
@@ -31,6 +36,9 @@ const baseSchema = z.object({
   DATABASE_URL: z.string().min(1),
   BETTER_AUTH_SECRET: z.string().min(32),
   BETTER_AUTH_URL: z.url(),
+  SITE_OWNER_EMAIL: z.email().transform((value) => value.trim().toLowerCase()),
+  ANONYMITY_SECRET: z.string().min(32),
+  INVITATION_COOKIE_SECRET: z.string().min(32),
   SESSION_EXPIRES_IN_SECONDS: z.coerce.number().int().min(300).default(604_800),
   SESSION_UPDATE_AGE_SECONDS: z.coerce.number().int().min(60).default(86_400),
   GOOGLE_AUTH_ENABLED: booleanFromString,
@@ -40,6 +48,12 @@ const baseSchema = z.object({
   BREVO_API_KEY: optionalString,
   EMAIL_FROM_ADDRESS: optionalString,
   EMAIL_FROM_NAME: optionalString,
+  S3_ENDPOINT: z.url(),
+  S3_REGION: z.string().min(1),
+  S3_BUCKET: z.string().min(3),
+  S3_ACCESS_KEY_ID: z.string().min(1),
+  S3_SECRET_ACCESS_KEY: z.string().min(1),
+  S3_FORCE_PATH_STYLE: booleanFromString,
 });
 
 export type Env = z.infer<typeof baseSchema> & {
@@ -52,7 +66,13 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-  if (trustedOrigins.length === 0 || trustedOrigins.includes("*")) {
+  if (parsed.NODE_ENV === "development" && parsed.VITE_TAILSCALE_HOST) {
+    trustedOrigins.push(`https://${parsed.VITE_TAILSCALE_HOST}`);
+  }
+
+  const uniqueTrustedOrigins = [...new Set(trustedOrigins)];
+
+  if (uniqueTrustedOrigins.length === 0 || uniqueTrustedOrigins.includes("*")) {
     throw new Error(
       "TRUSTED_ORIGINS must contain explicit origins and cannot contain '*'.",
     );
@@ -99,6 +119,6 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
 
   return {
     ...parsed,
-    trustedOrigins,
+    trustedOrigins: uniqueTrustedOrigins,
   };
 }

@@ -16,7 +16,10 @@ import {
   meResponseSchema,
   profileResponseSchema,
 } from "../schemas.js";
-import { requireAuthentication } from "../plugins/authentication.js";
+import {
+  requireAuthentication,
+  requireProfile,
+} from "../plugins/authentication.js";
 
 const publicSelect = {
   userId: true,
@@ -135,7 +138,12 @@ export function registerProfileRoutes(
         where: { authUserId: authUser.id },
         select: publicSelect,
       });
-      return { user: authUser, profile };
+      return {
+        user: authUser,
+        profile,
+        isOwner:
+          authUser.email.trim().toLowerCase() === app.env.SITE_OWNER_EMAIL,
+      };
     },
   );
 
@@ -211,6 +219,7 @@ export function registerProfileRoutes(
   server.get(
     "/v1/profiles/:userId",
     {
+      preHandler: requireProfile,
       schema: {
         params: z.object({ userId: userIdSchema }),
         response: {
@@ -236,6 +245,7 @@ export function registerProfileRoutes(
   server.get(
     "/v1/profiles/by-handle/:handle",
     {
+      preHandler: requireProfile,
       schema: {
         params: z.object({ handle: handleSchema }),
         response: {

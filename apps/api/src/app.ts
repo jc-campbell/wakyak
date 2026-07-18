@@ -14,10 +14,24 @@ import {
 
 import { createAuth, type Auth } from "./auth/auth.js";
 import { createEmailService, type EmailService } from "./auth/email.js";
+import { cleanupAttachments } from "./attachments/cleanup.js";
+import {
+  createImageProcessor,
+  type ImageProcessor,
+} from "./attachments/images.js";
+import {
+  createObjectStorage,
+  type ObjectStorage,
+} from "./attachments/storage.js";
 import { loadEnv, type Env } from "./config/env.js";
 import { AppError } from "./errors.js";
 import { registerBetterAuth } from "./plugins/better-auth.js";
 import { registerProfileRoutes } from "./routes/profiles.js";
+import { registerInvitationRoutes } from "./routes/invitations.js";
+import { registerPostRoutes } from "./routes/posts.js";
+import { registerCommentRoutes } from "./routes/comments.js";
+import { registerReactionRoutes } from "./routes/reactions.js";
+import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerSystemRoutes } from "./routes/system.js";
 
 export interface BuildAppOptions {
@@ -28,6 +42,9 @@ export interface BuildAppOptions {
   logger?: FastifyServerOptions["logger"];
   serveWeb?: boolean;
   webRoot?: string;
+  storage?: ObjectStorage;
+  imageProcessor?: ImageProcessor;
+  attachmentCleanup?: boolean;
 }
 
 const defaultWebRoot = fileURLToPath(
@@ -61,7 +78,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const env = options.env ?? loadEnv();
   const database = options.database ?? prisma;
   const emailService = options.emailService ?? createEmailService(env);
-  const auth = options.auth ?? createAuth(env, emailService);
+  const auth = options.auth ?? createAuth(env, emailService, database);
+  const storage = options.storage ?? createObjectStorage(env);
+  const imageProcessor = options.imageProcessor ?? createImageProcessor();
   const logger = options.logger ?? {
     level: env.NODE_ENV === "production" ? "info" : "debug",
     redact: { paths: redactionPaths, censor: "[REDACTED]" },
@@ -82,11 +101,14 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   app.decorateRequest("authSession", null);
+  app.decorateRequest("profile", null);
+  app.decorate("database", database);
+  app.decorate("env", env);
 
   await app.register(cors, {
     origin: env.trustedOrigins,
     credentials: true,
-    methods: ["GET", "POST", "PATCH", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["content-type", "authorization", "x-request-id"],
     maxAge: 86_400,
   });
@@ -108,6 +130,24 @@ export async function buildApp(options: BuildAppOptions = {}) {
   registerBetterAuth(app, auth, env);
   registerSystemRoutes(app, database);
   registerProfileRoutes(app, database);
+  registerInvitationRoutes(app, database, env);
+  registerPostRoutes(app, database, env);
+  registerCommentRoutes(app, database, env);
+  registerReactionRoutes(app, database);
+  registerAttachmentRoutes(app, database, storage, imageProcessor);
+
+  if (options.attachmentCleanup ?? options.database === undefined) {
+    await cleanupAttachments(database, storage, app.log);
+    const cleanupTimer = setInterval(() => {
+      void cleanupAttachments(database, storage, app.log).catch((error) => {
+        app.log.error({ err: error }, "Scheduled attachment cleanup failed");
+      });
+    }, 60 * 60_000);
+    cleanupTimer.unref();
+    app.addHook("onClose", () => {
+      clearInterval(cleanupTimer);
+    });
+  }
 
   const serveWeb = options.serveWeb ?? env.NODE_ENV === "production";
   if (serveWeb) {

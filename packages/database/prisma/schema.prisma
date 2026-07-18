@@ -7,17 +7,32 @@ datasource db {
   provider = "postgresql"
 }
 
+enum ContentStatus {
+  ACTIVE
+  DELETED
+  REMOVED
+}
+
+enum AttachmentStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
 model User {
-  id            String    @id
+  id            String      @id
   name          String
   email         String
-  emailVerified Boolean   @default(false)
+  emailVerified Boolean     @default(false)
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
   sessions      Session[]
   accounts      Account[]
   profile       Profile?
+  invitationId  String?     @unique
+  invitation    Invitation? @relation(fields: [invitationId], references: [id], onDelete: Restrict)
 
   @@unique([email])
   @@map("user")
@@ -72,10 +87,137 @@ model Verification {
 }
 
 model Profile {
-  userId      String @id
-  authUserId  String @unique
-  handle      String @unique
+  userId      String   @id
+  authUserId  String   @unique
+  handle      String   @unique
   displayName String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   user User @relation(fields: [authUserId], references: [id], onDelete: Cascade)
+
+  posts             Post[]       @relation("PostAuthor")
+  comments          Comment[]    @relation("CommentAuthor")
+  reactions         Reaction[]
+  attachments       Attachment[]
+  moderatedPosts    Post[]       @relation("PostModerator")
+  moderatedComments Comment[]    @relation("CommentModerator")
+}
+
+model Invitation {
+  id         String    @id @default(uuid())
+  code       String    @unique
+  label      String?
+  createdAt  DateTime  @default(now())
+  consumedAt DateTime?
+  revokedAt  DateTime?
+  user       User?
+
+  @@index([revokedAt, consumedAt, createdAt, id])
+}
+
+model Post {
+  id                 String        @id @default(uuid())
+  authorProfileId    String?
+  author             Profile?      @relation("PostAuthor", fields: [authorProfileId], references: [userId], onDelete: SetNull)
+  body               String?
+  isAnonymous        Boolean       @default(false)
+  status             ContentStatus @default(ACTIVE)
+  upvoteCount        Int           @default(0)
+  downvoteCount      Int           @default(0)
+  netScore           Int           @default(0)
+  commentCount       Int           @default(0)
+  hotRank            Float
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  deletedAt          DateTime?
+  removedAt          DateTime?
+  removedByProfileId String?
+  removedBy          Profile?      @relation("PostModerator", fields: [removedByProfileId], references: [userId], onDelete: SetNull)
+  comments           Comment[]
+  reactions          Reaction[]
+  attachments        Attachment[]
+
+  @@index([status, createdAt, id])
+  @@index([status, netScore, createdAt, id])
+  @@index([status, hotRank, id])
+  @@index([authorProfileId, createdAt, id])
+}
+
+model Comment {
+  id                 String        @id @default(uuid())
+  postId             String
+  post               Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorProfileId    String?
+  author             Profile?      @relation("CommentAuthor", fields: [authorProfileId], references: [userId], onDelete: SetNull)
+  parentCommentId    String?
+  parentPostId       String?
+  parent             Comment?      @relation("CommentReplies", fields: [parentPostId, parentCommentId], references: [postId, id], onDelete: Restrict)
+  replies            Comment[]     @relation("CommentReplies")
+  depth              Int           @default(0)
+  body               String?
+  isAnonymous        Boolean       @default(false)
+  status             ContentStatus @default(ACTIVE)
+  upvoteCount        Int           @default(0)
+  downvoteCount      Int           @default(0)
+  netScore           Int           @default(0)
+  replyCount         Int           @default(0)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  deletedAt          DateTime?
+  removedAt          DateTime?
+  removedByProfileId String?
+  removedBy          Profile?      @relation("CommentModerator", fields: [removedByProfileId], references: [userId], onDelete: SetNull)
+  reactions          Reaction[]
+
+  @@unique([postId, id])
+  @@index([postId, parentCommentId, status, netScore, createdAt, id])
+  @@index([postId, parentCommentId, status, createdAt, id])
+  @@index([parentCommentId, createdAt, id])
+  @@index([authorProfileId, createdAt, id])
+}
+
+model Reaction {
+  id        String   @id @default(uuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [userId], onDelete: Cascade)
+  postId    String?
+  post      Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  commentId String?
+  comment   Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  value     Int      @db.SmallInt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, postId])
+  @@unique([profileId, commentId])
+  @@index([postId])
+  @@index([commentId])
+}
+
+model Attachment {
+  id                  String           @id @default(uuid())
+  ownerProfileId      String?
+  owner               Profile?         @relation(fields: [ownerProfileId], references: [userId], onDelete: SetNull)
+  postId              String?
+  post                Post?            @relation(fields: [postId], references: [id], onDelete: Cascade)
+  inputStorageKey     String?          @unique
+  outputStorageKey    String?          @unique
+  declaredContentType String
+  declaredByteSize    Int
+  contentType         String?
+  byteSize            Int?
+  width               Int?
+  height              Int?
+  order               Int?
+  status              AttachmentStatus @default(PENDING)
+  expiresAt           DateTime
+  processingStartedAt DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@unique([postId, order])
+  @@index([ownerProfileId, status, createdAt])
+  @@index([postId, order])
+  @@index([status, expiresAt])
 }

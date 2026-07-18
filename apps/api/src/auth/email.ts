@@ -2,7 +2,8 @@ import { BrevoClient } from "@getbrevo/brevo";
 
 import type { Env } from "../config/env.js";
 
-export type AuthEmailType = "verification" | "password-reset";
+export type AuthEmailType =
+  "verification" | "password-reset" | "account-deletion";
 
 export interface AuthEmail {
   to: string;
@@ -50,11 +51,15 @@ export function createEmailService(env: Env): EmailService {
       const purpose =
         message.type === "verification"
           ? "verify your email"
-          : "reset your password";
+          : message.type === "password-reset"
+            ? "reset your password"
+            : "confirm deletion of your WakYak account";
       const subject =
         message.type === "verification"
           ? "Verify your email"
-          : "Reset your password";
+          : message.type === "password-reset"
+            ? "Reset your password"
+            : "Confirm account deletion";
       const safeUrl = escapeHtml(message.url);
 
       await client.transactionalEmails.sendTransacEmail({

@@ -104,7 +104,11 @@ describe("profile routes", () => {
       "/v1/profiles/PERSON-123",
       "/v1/profiles/by-handle/@PERSON_123",
     ]) {
-      const response = await app.inject({ method: "GET", url });
+      const response = await app.inject({
+        method: "GET",
+        url,
+        headers: { cookie },
+      });
       expect(response.statusCode).toBe(200);
       const body = response.json<{ profile: typeof expected }>();
       expect(body).toEqual({ profile: expected });
@@ -166,12 +170,26 @@ describe("profile routes", () => {
     expect(patch.json()).toMatchObject({
       error: { code: "PROFILE_NOT_FOUND" },
     });
+    await app.inject({
+      method: "POST",
+      url: "/v1/profile",
+      headers: { cookie },
+      payload: {
+        userId: "missing-viewer",
+        handle: "missing_viewer",
+        displayName: "Missing Viewer",
+      },
+    });
 
     for (const url of [
       "/v1/profiles/missing-user",
       "/v1/profiles/by-handle/missing_handle",
     ]) {
-      const response = await app.inject({ method: "GET", url });
+      const response = await app.inject({
+        method: "GET",
+        url,
+        headers: { cookie },
+      });
       expect(response.statusCode).toBe(404);
       expect(response.json()).toMatchObject({
         error: { code: "PROFILE_NOT_FOUND" },

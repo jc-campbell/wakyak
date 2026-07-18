@@ -25,6 +25,7 @@ export const authUserSchema = z.object({
 export const meResponseSchema = z.object({
   user: authUserSchema,
   profile: publicProfileSchema.nullable(),
+  isOwner: z.boolean(),
 });
 
 export const errorResponses = {

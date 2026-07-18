@@ -47,6 +47,16 @@ describe("environment validation", () => {
     BETTER_AUTH_URL: "http://localhost:4000",
     API_ORIGIN: "http://localhost:4000",
     TRUSTED_ORIGINS: "http://localhost:5173",
+    SITE_OWNER_EMAIL: "owner@example.com",
+    ANONYMITY_SECRET: "an-anonymity-secret-with-at-least-32-characters",
+    INVITATION_COOKIE_SECRET:
+      "an-invitation-secret-with-at-least-32-characters",
+    S3_ENDPOINT: "http://localhost:9090",
+    S3_REGION: "us-east-1",
+    S3_BUCKET: "wakyak-test",
+    S3_ACCESS_KEY_ID: "test",
+    S3_SECRET_ACCESS_KEY: "test",
+    S3_FORCE_PATH_STYLE: "true",
   };
 
   it("requires enabled provider credentials", () => {
@@ -60,5 +70,15 @@ describe("environment validation", () => {
       /explicit origins/,
     );
     expect(() => loadEnv({ ...base, NODE_ENV: "production" })).toThrow(/HTTPS/);
+  });
+
+  it("adds an automatically discovered Tailscale host in development", () => {
+    const env = loadEnv({
+      ...base,
+      NODE_ENV: "development",
+      VITE_TAILSCALE_HOST: "jackmac.example.ts.net",
+    });
+
+    expect(env.trustedOrigins).toContain("https://jackmac.example.ts.net");
   });
 });

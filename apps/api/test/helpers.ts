@@ -11,10 +11,24 @@ export const testEnv = loadEnv({
   NODE_ENV: "test",
   GOOGLE_AUTH_ENABLED: "false",
   EMAIL_MODE: "console",
+  SITE_OWNER_EMAIL: "owner@example.com",
+  ANONYMITY_SECRET: "an-anonymity-secret-with-at-least-32-characters",
+  INVITATION_COOKIE_SECRET: "an-invitation-secret-with-at-least-32-characters",
+  S3_ENDPOINT: "http://localhost:9090",
+  S3_REGION: "us-east-1",
+  S3_BUCKET: "wakyak-attachments",
+  S3_ACCESS_KEY_ID: "test",
+  S3_SECRET_ACCESS_KEY: "test",
+  S3_FORCE_PATH_STYLE: "true",
 });
 
 export async function cleanDatabase(): Promise<void> {
+  await prisma.reaction.deleteMany();
+  await prisma.comment.deleteMany();
+  await prisma.attachment.deleteMany();
+  await prisma.post.deleteMany();
   await prisma.user.deleteMany();
+  await prisma.invitation.deleteMany();
   await prisma.verification.deleteMany();
 }
 
@@ -44,10 +58,27 @@ export async function registerAndVerify(
   email: string,
   password = "correct-horse-battery-staple",
 ): Promise<void> {
+  let invitationCookie: string | undefined;
+  if (email.trim().toLowerCase() !== testEnv.SITE_OWNER_EMAIL) {
+    const code = crypto
+      .randomUUID()
+      .replaceAll("-", "")
+      .slice(0, 16)
+      .toUpperCase()
+      .replace(/[ILOU]/g, "A");
+    await prisma.invitation.create({ data: { code } });
+    const redemption = await app.inject({
+      method: "POST",
+      url: "/v1/invitations/redeem",
+      payload: { code },
+    });
+    invitationCookie = cookiesFrom(redemption.headers);
+  }
   const signup = await app.inject({
     method: "POST",
     url: "/api/auth/sign-up/email",
     payload: { name: "Test Person", email, password },
+    ...(invitationCookie ? { headers: { cookie: invitationCookie } } : {}),
   });
   if (signup.statusCode !== 200) {
     throw new Error(`Signup failed (${signup.statusCode}): ${signup.body}`);
