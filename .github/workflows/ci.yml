@@ -73,6 +73,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
+      - run: pnpm build
       - run: DATABASE_URL="$TEST_DATABASE_URL" pnpm db:migrate:deploy
       - run: pnpm test:integration
 

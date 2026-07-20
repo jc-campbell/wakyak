@@ -1,6 +1,11 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalPassThroughEnv": ["VITE_TAILSCALE_HOST"],
+  "globalPassThroughEnv": [
+    "BETTER_AUTH_SECRET",
+    "BETTER_AUTH_URL",
+    "DATABASE_URL",
+    "VITE_TAILSCALE_HOST"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
