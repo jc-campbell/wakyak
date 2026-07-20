@@ -1,0 +1,73 @@
+services:
+  - type: web
+    runtime: docker
+    name: wakyak
+    region: virginia
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    preDeployCommand: pnpm db:migrate:deploy
+    healthCheckPath: /ready
+    autoDeployTrigger: checksPass
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_ORIGIN
+        value: https://wakyak.onrender.com
+      - key: BETTER_AUTH_URL
+        value: https://wakyak.onrender.com
+      - key: TRUSTED_ORIGINS
+        value: https://wakyak.onrender.com
+      - key: TRUST_PROXY
+        value: "true"
+      - key: BODY_LIMIT_BYTES
+        value: "1048576"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wakyak-postgres
+          property: connectionString
+      - key: BETTER_AUTH_SECRET
+        generateValue: true
+      - key: ANONYMITY_SECRET
+        generateValue: true
+      - key: INVITATION_COOKIE_SECRET
+        generateValue: true
+      - key: SITE_OWNER_EMAIL
+        sync: false
+      - key: SESSION_EXPIRES_IN_SECONDS
+        value: "604800"
+      - key: SESSION_UPDATE_AGE_SECONDS
+        value: "86400"
+      - key: GOOGLE_AUTH_ENABLED
+        value: "false"
+      - key: EMAIL_MODE
+        value: brevo
+      - key: BREVO_API_KEY
+        sync: false
+      - key: EMAIL_FROM_ADDRESS
+        sync: false
+      - key: EMAIL_FROM_NAME
+        sync: false
+      - key: S3_ENDPOINT
+        value: https://13c55b38e666b5936e558963a09a1a8c.r2.cloudflarestorage.com
+      - key: S3_REGION
+        value: auto
+      - key: S3_BUCKET
+        value: wakyak-attachments
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_FORCE_PATH_STYLE
+        value: "true"
+
+databases:
+  - name: wakyak-postgres
+    region: virginia
+    plan: basic-256mb
+    diskSizeGB: 5
+    postgresMajorVersion: "17"
+    databaseName: wakyak
+    user: wakyak
+    ipAllowList: []

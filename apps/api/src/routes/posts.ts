@@ -1,4 +1,9 @@
 import type { PrismaClient } from "@wakyak/database";
+import {
+  createPostRequestSchema,
+  postResponseSchema,
+  postsResponseSchema,
+} from "@wakyak/contracts";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -11,9 +16,9 @@ import { contentBody } from "../content/validation.js";
 import { AppError } from "../errors.js";
 import { requireProfile } from "../plugins/authentication.js";
 import { errorResponseSchema } from "../schemas.js";
+import { blockedProfileIds } from "../social/visibility.js";
 
 const idParams = z.object({ id: z.uuid() });
-const output = z.any();
 
 function postInclude(profileId: string) {
   return {
@@ -39,13 +44,9 @@ export function registerPostRoutes(
     {
       preHandler: requireProfile,
       schema: {
-        body: z.object({
-          body: z.string().optional().nullable(),
-          isAnonymous: z.boolean().default(false),
-          attachmentIds: z.array(z.uuid()).max(4).default([]),
-        }),
+        body: createPostRequestSchema,
         response: {
-          201: output,
+          201: postResponseSchema,
           400: errorResponseSchema,
           401: errorResponseSchema,
           403: errorResponseSchema,
@@ -71,6 +72,13 @@ export function registerPostRoutes(
         );
       }
       const profileId = request.profile!.userId;
+      const settings = await database.profileSettings.upsert({
+        where: { profileId },
+        create: { profileId },
+        update: {},
+      });
+      const isAnonymous =
+        request.body.isAnonymous ?? settings.defaultPostAnonymous;
       const now = new Date();
       const post = await database.$transaction(async (tx) => {
         if (attachmentIds.length) {
@@ -94,7 +102,7 @@ export function registerPostRoutes(
         const created = await tx.post.create({
           data: {
             body,
-            isAnonymous: request.body.isAnonymous,
+            isAnonymous,
             authorProfileId: profileId,
             upvoteCount: 1,
             netScore: 1,
@@ -104,6 +112,12 @@ export function registerPostRoutes(
         });
         await tx.reaction.create({
           data: { profileId, postId: created.id, value: 1 },
+        });
+        await tx.threadSubscription.create({
+          data: { profileId, postId: created.id },
+        });
+        await tx.feedSeen.create({
+          data: { profileId, postId: created.id },
         });
         for (const [order, attachmentId] of attachmentIds.entries()) {
           const claimed = await tx.attachment.updateMany({
@@ -144,7 +158,7 @@ export function registerPostRoutes(
           limit: z.coerce.number().int().min(1).max(50).default(25),
         }),
         response: {
-          200: output,
+          200: postsResponseSchema,
           400: errorResponseSchema,
           401: errorResponseSchema,
           403: errorResponseSchema,
@@ -153,6 +167,10 @@ export function registerPostRoutes(
     },
     async (request) => {
       const { sort, window, limit } = request.query;
+      const blocked = await blockedProfileIds(
+        database,
+        request.profile!.userId,
+      );
       const cursor = decodeCursor<Record<string, unknown>>(
         request.query.cursor,
         { scope: "posts", sort, window },
@@ -174,6 +192,14 @@ export function registerPostRoutes(
 
       const baseWhere = {
         status: "ACTIVE" as const,
+        ...(blocked.length
+          ? {
+              OR: [
+                { authorProfileId: null },
+                { authorProfileId: { notIn: blocked } },
+              ],
+            }
+          : {}),
         ...(cutoff ? { createdAt: { gte: cutoff } } : {}),
       };
       let position = {};
@@ -256,12 +282,27 @@ export function registerPostRoutes(
       preHandler: requireProfile,
       schema: {
         params: idParams,
-        response: { 200: output, 404: errorResponseSchema },
+        response: { 200: postResponseSchema, 404: errorResponseSchema },
       },
     },
     async (request) => {
+      const blocked = await blockedProfileIds(
+        database,
+        request.profile!.userId,
+      );
       const post = await database.post.findFirst({
-        where: { id: request.params.id, status: "ACTIVE" },
+        where: {
+          id: request.params.id,
+          status: "ACTIVE",
+          ...(blocked.length
+            ? {
+                OR: [
+                  { authorProfileId: null },
+                  { authorProfileId: { notIn: blocked } },
+                ],
+              }
+            : {}),
+        },
         include: postInclude(request.profile!.userId),
       });
       if (!post)

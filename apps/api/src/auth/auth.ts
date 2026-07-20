@@ -78,6 +78,8 @@ export function createAuth(
                 id: invitationId,
                 consumedAt: null,
                 revokedAt: null,
+                status: "ACTIVE",
+                expiresAt: { gt: new Date() },
                 user: null,
               },
               select: { id: true },
@@ -94,8 +96,14 @@ export function createAuth(
               typeof user.invitationId === "string" ? user.invitationId : null;
             if (!invitationId) return;
             const result = await database.invitation.updateMany({
-              where: { id: invitationId, consumedAt: null, revokedAt: null },
-              data: { consumedAt: new Date() },
+              where: {
+                id: invitationId,
+                consumedAt: null,
+                revokedAt: null,
+                status: "ACTIVE",
+                expiresAt: { gt: new Date() },
+              },
+              data: { consumedAt: new Date(), status: "USED" },
             });
             if (result.count !== 1) {
               throw new APIError("CONFLICT", {

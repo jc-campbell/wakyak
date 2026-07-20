@@ -35,6 +35,20 @@ describe("invitations", () => {
       },
     });
 
+    const ownerAccess = await app.inject({
+      method: "GET",
+      url: "/v1/admin/access",
+      headers: { cookie: ownerCookie },
+    });
+    expect(ownerAccess.statusCode).toBe(204);
+    const me = await app.inject({
+      method: "GET",
+      url: "/v1/me",
+      headers: { cookie: ownerCookie },
+    });
+    expect(me.statusCode).toBe(200);
+    expect(me.json()).not.toHaveProperty("isOwner");
+
     const created = await app.inject({
       method: "POST",
       url: "/v1/admin/invitations",
@@ -47,7 +61,7 @@ describe("invitations", () => {
     }>();
     expect(createdBody.invitation).toMatchObject({
       label: "Friend",
-      status: "AVAILABLE",
+      status: "ACTIVE",
     });
     const code = createdBody.invitation.code;
 
@@ -101,7 +115,144 @@ describe("invitations", () => {
         .invitations[0],
     ).toMatchObject({
       code,
-      status: "CONSUMED",
+      status: "USED",
     });
+  });
+
+  it("keeps owner authorization server-side and revokes active codes", async () => {
+    expect(
+      (await app.inject({ method: "GET", url: "/v1/admin/access" })).statusCode,
+    ).toBe(401);
+
+    await registerAndVerify(app, emailService, "member@example.com");
+    const memberCookie = await login(app, "member@example.com");
+    await app.inject({
+      method: "POST",
+      url: "/v1/profile",
+      headers: { cookie: memberCookie },
+      payload: {
+        userId: "member-user",
+        handle: "member_user",
+        displayName: "Member",
+      },
+    });
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/v1/admin/access",
+          headers: { cookie: memberCookie },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/v1/admin/invitations",
+          headers: { cookie: memberCookie },
+        })
+      ).statusCode,
+    ).toBe(403);
+
+    await registerAndVerify(app, emailService, testEnv.SITE_OWNER_EMAIL);
+    const ownerCookie = await login(app, testEnv.SITE_OWNER_EMAIL);
+    await app.inject({
+      method: "POST",
+      url: "/v1/profile",
+      headers: { cookie: ownerCookie },
+      payload: {
+        userId: "owner-user",
+        handle: "owner_user",
+        displayName: "Owner",
+      },
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/admin/invitations",
+      headers: { cookie: ownerCookie },
+      payload: {},
+    });
+    const invitation = created.json<{ invitation: { id: string } }>()
+      .invitation;
+    const revoked = await app.inject({
+      method: "DELETE",
+      url: `/v1/admin/invitations/${invitation.id}`,
+      headers: { cookie: ownerCookie },
+    });
+    expect(revoked.statusCode).toBe(204);
+    const stored = await prisma.invitation.findUniqueOrThrow({
+      where: { id: invitation.id },
+    });
+    expect(stored.status).toBe("REVOKED");
+    expect(stored.revokedAt).toBeInstanceOf(Date);
+    expect(
+      (
+        await app.inject({
+          method: "DELETE",
+          url: `/v1/admin/invitations/${invitation.id}`,
+          headers: { cookie: ownerCookie },
+        })
+      ).statusCode,
+    ).toBe(409);
+  });
+
+  it("expires old codes and permits only one concurrent signup", async () => {
+    const expired = await prisma.invitation.create({
+      data: {
+        code: "FEDCBA9876543210",
+        expiresAt: new Date(Date.now() - 1_000),
+      },
+    });
+    const expiredResult = await app.inject({
+      method: "POST",
+      url: "/v1/invitations/redeem",
+      payload: { code: expired.code },
+    });
+    expect(expiredResult.statusCode).toBe(409);
+    expect(
+      (await prisma.invitation.findUniqueOrThrow({ where: { id: expired.id } }))
+        .status,
+    ).toBe("EXPIRED");
+
+    const invitation = await prisma.invitation.create({
+      data: {
+        code: "0123456789ABCDEF",
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+    const redemption = await app.inject({
+      method: "POST",
+      url: "/v1/invitations/redeem",
+      payload: { code: invitation.code },
+    });
+    const cookie = cookiesFrom(redemption.headers);
+    const results = await Promise.all(
+      ["race-one@example.com", "race-two@example.com"].map((email) =>
+        app.inject({
+          method: "POST",
+          url: "/api/auth/sign-up/email",
+          headers: { cookie },
+          payload: {
+            name: "Invitation Race",
+            email,
+            password: "correct-horse-battery-staple",
+          },
+        }),
+      ),
+    );
+    expect(results.filter((result) => result.statusCode === 200)).toHaveLength(
+      1,
+    );
+    expect(
+      await prisma.user.count({ where: { invitationId: invitation.id } }),
+    ).toBe(1);
+    expect(
+      (
+        await prisma.invitation.findUniqueOrThrow({
+          where: { id: invitation.id },
+        })
+      ).status,
+    ).toBe("USED");
   });
 });

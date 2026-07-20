@@ -33,6 +33,14 @@ import { registerCommentRoutes } from "./routes/comments.js";
 import { registerReactionRoutes } from "./routes/reactions.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerSystemRoutes } from "./routes/system.js";
+import { registerSocialRoutes } from "./routes/social.js";
+import { registerFeedRoutes } from "./routes/feed.js";
+import { registerSettingsRoutes } from "./routes/settings.js";
+import { registerNotificationRoutes } from "./routes/notifications.js";
+import {
+  processOutboxEvents,
+  runScheduledNotificationJobs,
+} from "./notifications/worker.js";
 
 export interface BuildAppOptions {
   env?: Env;
@@ -45,6 +53,7 @@ export interface BuildAppOptions {
   storage?: ObjectStorage;
   imageProcessor?: ImageProcessor;
   attachmentCleanup?: boolean;
+  backgroundJobs?: boolean;
 }
 
 const defaultWebRoot = fileURLToPath(
@@ -112,7 +121,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
     allowedHeaders: ["content-type", "authorization", "x-request-id"],
     maxAge: 86_400,
   });
-  await app.register(helmet);
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        imgSrc: ["'self'", "data:", new URL(env.S3_ENDPOINT).origin],
+      },
+    },
+  });
   await app.register(formbody);
   await app.register(rateLimit, {
     global: true,
@@ -129,12 +144,30 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   registerBetterAuth(app, auth, env);
   registerSystemRoutes(app, database);
+  registerSocialRoutes(app, database, env);
+  registerFeedRoutes(app, database, env);
+  registerSettingsRoutes(app, database);
+  registerNotificationRoutes(app, database);
   registerProfileRoutes(app, database);
   registerInvitationRoutes(app, database, env);
   registerPostRoutes(app, database, env);
   registerCommentRoutes(app, database, env);
   registerReactionRoutes(app, database);
   registerAttachmentRoutes(app, database, storage, imageProcessor);
+
+  if (options.backgroundJobs ?? options.database === undefined) {
+    const runJobs = () =>
+      Promise.all([
+        processOutboxEvents(database, env),
+        runScheduledNotificationJobs(database),
+      ]).catch((error) =>
+        app.log.error({ err: error }, "Background API job failed"),
+      );
+    void runJobs();
+    const jobTimer = setInterval(() => void runJobs(), 5_000);
+    jobTimer.unref();
+    app.addHook("onClose", () => clearInterval(jobTimer));
+  }
 
   if (options.attachmentCleanup ?? options.database === undefined) {
     await cleanupAttachments(database, storage, app.log);

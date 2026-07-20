@@ -2,6 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    env: { WAKYAK_INTEGRATION: "true" },
     setupFiles: ["./test/setup.ts"],
     include: ["test/**/*.integration.test.ts"],
     fileParallelism: false,

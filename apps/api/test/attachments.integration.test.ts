@@ -82,6 +82,9 @@ describe("attachments against S3Mock", () => {
       headers: { cookie },
     });
     expect(content.statusCode).toBe(302);
+    expect(content.headers["cross-origin-resource-policy"]).toBe(
+      "cross-origin",
+    );
     const normalized = Buffer.from(
       await (await fetch(content.headers.location!)).arrayBuffer(),
     );

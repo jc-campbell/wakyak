@@ -1,4 +1,9 @@
 import { Prisma, type PrismaClient } from "@wakyak/database";
+import {
+  profileCommentsResponseSchema,
+  profileMediaResponseSchema,
+  profilePostsResponseSchema,
+} from "@wakyak/contracts";
 import { fromNodeHeaders } from "better-auth/node";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -7,12 +12,12 @@ import { z } from "zod";
 import { AppError } from "../errors.js";
 import {
   createProfileBodySchema,
-  handleSchema,
   updateProfileBodySchema,
   userIdSchema,
 } from "../profile-validation.js";
 import {
   errorResponseSchema,
+  profileDetailsResponseSchema,
   meResponseSchema,
   profileResponseSchema,
 } from "../schemas.js";
@@ -20,11 +25,16 @@ import {
   requireAuthentication,
   requireProfile,
 } from "../plugins/authentication.js";
+import { postDto, commentDto } from "../content/dto.js";
+import { decodeCursor, encodeCursor } from "../content/cursor.js";
+import { profilesAreBlocked } from "../social/visibility.js";
 
 const publicSelect = {
   userId: true,
   handle: true,
   displayName: true,
+  avatarUrl: true,
+  bio: true,
 } as const;
 
 function uniqueTargets(error: unknown): string[] {
@@ -141,8 +151,6 @@ export function registerProfileRoutes(
       return {
         user: authUser,
         profile,
-        isOwner:
-          authUser.email.trim().toLowerCase() === app.env.SITE_OWNER_EMAIL,
       };
     },
   );
@@ -158,12 +166,15 @@ export function registerProfileRoutes(
     },
     async (request, reply) => {
       try {
-        const profile = await database.profile.create({
-          data: {
-            ...request.body,
-            authUserId: request.authSession!.user.id,
-          },
-          select: publicSelect,
+        const profile = await database.$transaction(async (tx) => {
+          const created = await tx.profile.create({
+            data: { ...request.body, authUserId: request.authSession!.user.id },
+            select: publicSelect,
+          });
+          await tx.profileSettings.create({
+            data: { profileId: created.userId },
+          });
+          return created;
         });
         return reply.code(201).send({ profile });
       } catch (error) {
@@ -173,7 +184,7 @@ export function registerProfileRoutes(
   );
 
   server.patch(
-    "/v1/profile",
+    "/v1/me/profile",
     {
       preHandler: requireAuthentication,
       schema: {
@@ -190,6 +201,10 @@ export function registerProfileRoutes(
           ...(request.body.displayName === undefined
             ? {}
             : { displayName: request.body.displayName }),
+          ...(request.body.avatarUrl === undefined
+            ? {}
+            : { avatarUrl: request.body.avatarUrl }),
+          ...(request.body.bio === undefined ? {} : { bio: request.body.bio }),
         };
         const profile = await database.profile.update({
           where: { authUserId: request.authSession!.user.id },
@@ -223,7 +238,7 @@ export function registerProfileRoutes(
       schema: {
         params: z.object({ userId: userIdSchema }),
         response: {
-          200: profileResponseSchema,
+          200: profileDetailsResponseSchema,
           400: errorResponseSchema,
           404: errorResponseSchema,
           500: errorResponseSchema,
@@ -231,6 +246,15 @@ export function registerProfileRoutes(
       },
     },
     async (request) => {
+      if (
+        request.params.userId !== request.profile!.userId &&
+        (await profilesAreBlocked(
+          database,
+          request.profile!.userId,
+          request.params.userId,
+        ))
+      )
+        throw new AppError(404, "PROFILE_NOT_FOUND", "Profile not found.");
       const profile = await database.profile.findUnique({
         where: { userId: request.params.userId },
         select: publicSelect,
@@ -238,33 +262,298 @@ export function registerProfileRoutes(
       if (!profile) {
         throw new AppError(404, "PROFILE_NOT_FOUND", "Profile not found.");
       }
-      return { profile };
+      const [postCounts, commentCounts, followers, following] =
+        await Promise.all([
+          database.post.aggregate({
+            where: { authorProfileId: profile.userId, status: "ACTIVE" },
+            _count: true,
+            _sum: { netScore: true },
+          }),
+          database.comment.aggregate({
+            where: {
+              authorProfileId: profile.userId,
+              status: "ACTIVE",
+              post: { status: "ACTIVE" },
+            },
+            _sum: { netScore: true },
+          }),
+          database.follow.count({
+            where: { followingProfileId: profile.userId },
+          }),
+          database.follow.count({
+            where: { followerProfileId: profile.userId },
+          }),
+        ]);
+      const postWakarma = postCounts._sum.netScore ?? 0;
+      const commentWakarma = commentCounts._sum.netScore ?? 0;
+      const viewerIsFollowing =
+        profile.userId !== request.profile!.userId &&
+        Boolean(
+          await database.follow.findUnique({
+            where: {
+              followerProfileId_followingProfileId: {
+                followerProfileId: request.profile!.userId,
+                followingProfileId: profile.userId,
+              },
+            },
+            select: { id: true },
+          }),
+        );
+      return {
+        profile: {
+          ...profile,
+          counts: { posts: postCounts._count, followers, following },
+          wakarma: {
+            total: postWakarma + commentWakarma,
+            posts: postWakarma,
+            comments: commentWakarma,
+          },
+          viewerIsFollowing,
+        },
+      };
     },
   );
 
+  const contentQuery = z.object({
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(25),
+  });
+  const pagePosition = (cursorValue: string | undefined, scope: string) => {
+    const cursor = decodeCursor<Record<string, unknown>>(cursorValue, {
+      scope,
+    });
+    if (!cursor) return {};
+    const createdAt = new Date(String(cursor.createdAt));
+    const id = typeof cursor.id === "string" ? cursor.id : "";
+    if (!id || Number.isNaN(createdAt.valueOf()))
+      throw new AppError(400, "VALIDATION_ERROR", "Invalid cursor.");
+    return {
+      OR: [{ createdAt: { lt: createdAt } }, { createdAt, id: { lt: id } }],
+    };
+  };
   server.get(
-    "/v1/profiles/by-handle/:handle",
+    "/v1/profiles/:userId/posts",
     {
       preHandler: requireProfile,
       schema: {
-        params: z.object({ handle: handleSchema }),
+        params: z.object({ userId: userIdSchema }),
+        querystring: contentQuery,
         response: {
-          200: profileResponseSchema,
+          200: profilePostsResponseSchema,
           400: errorResponseSchema,
           404: errorResponseSchema,
-          500: errorResponseSchema,
         },
       },
     },
     async (request) => {
-      const profile = await database.profile.findUnique({
-        where: { handle: request.params.handle },
-        select: publicSelect,
-      });
-      if (!profile) {
+      if (
+        request.params.userId !== request.profile!.userId &&
+        (await profilesAreBlocked(
+          database,
+          request.profile!.userId,
+          request.params.userId,
+        ))
+      )
         throw new AppError(404, "PROFILE_NOT_FOUND", "Profile not found.");
-      }
-      return { profile };
+      const scope = `profile:${request.params.userId}:posts`;
+      const position = pagePosition(request.query.cursor, scope);
+      const rows = await database.post.findMany({
+        where: {
+          AND: [
+            {
+              authorProfileId: request.params.userId,
+              status: "ACTIVE",
+              isAnonymous: false,
+            },
+            position,
+          ],
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: request.query.limit + 1,
+        include: {
+          author: {
+            select: {
+              userId: true,
+              handle: true,
+              displayName: true,
+              avatarUrl: true,
+            },
+          },
+          reactions: {
+            where: { profileId: request.profile!.userId },
+            select: { value: true },
+          },
+          attachments: {
+            where: { status: "READY" },
+            select: { id: true, width: true, height: true, order: true },
+            orderBy: { order: "asc" },
+          },
+        },
+      });
+      const posts = rows.slice(0, request.query.limit);
+      const last = posts.at(-1);
+      return {
+        posts: posts.map((post) =>
+          postDto(post, request.profile!.userId, app.env),
+        ),
+        nextCursor:
+          rows.length > request.query.limit && last
+            ? encodeCursor({
+                scope,
+                createdAt: last.createdAt.toISOString(),
+                id: last.id,
+              })
+            : null,
+      };
+    },
+  );
+  server.get(
+    "/v1/profiles/:userId/comments",
+    {
+      preHandler: requireProfile,
+      schema: {
+        params: z.object({ userId: userIdSchema }),
+        querystring: contentQuery,
+        response: {
+          200: profileCommentsResponseSchema,
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request) => {
+      if (
+        request.params.userId !== request.profile!.userId &&
+        (await profilesAreBlocked(
+          database,
+          request.profile!.userId,
+          request.params.userId,
+        ))
+      )
+        throw new AppError(404, "PROFILE_NOT_FOUND", "Profile not found.");
+      const scope = `profile:${request.params.userId}:comments`;
+      const position = pagePosition(request.query.cursor, scope);
+      const rows = await database.comment.findMany({
+        where: {
+          AND: [
+            {
+              authorProfileId: request.params.userId,
+              status: "ACTIVE",
+              isAnonymous: false,
+              post: { status: "ACTIVE" },
+            },
+            position,
+          ],
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: request.query.limit + 1,
+        include: {
+          author: {
+            select: {
+              userId: true,
+              handle: true,
+              displayName: true,
+              avatarUrl: true,
+            },
+          },
+          reactions: {
+            where: { profileId: request.profile!.userId },
+            select: { value: true },
+          },
+          post: { select: { authorProfileId: true } },
+        },
+      });
+      const comments = rows.slice(0, request.query.limit);
+      const last = comments.at(-1);
+      return {
+        comments: comments.map((comment) =>
+          commentDto(comment, request.profile!.userId, app.env),
+        ),
+        nextCursor:
+          rows.length > request.query.limit && last
+            ? encodeCursor({
+                scope,
+                createdAt: last.createdAt.toISOString(),
+                id: last.id,
+              })
+            : null,
+      };
+    },
+  );
+  server.get(
+    "/v1/profiles/:userId/media",
+    {
+      preHandler: requireProfile,
+      schema: {
+        params: z.object({ userId: userIdSchema }),
+        querystring: contentQuery,
+        response: {
+          200: profileMediaResponseSchema,
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request) => {
+      if (
+        request.params.userId !== request.profile!.userId &&
+        (await profilesAreBlocked(
+          database,
+          request.profile!.userId,
+          request.params.userId,
+        ))
+      )
+        throw new AppError(404, "PROFILE_NOT_FOUND", "Profile not found.");
+      const scope = `profile:${request.params.userId}:media`;
+      const position = pagePosition(request.query.cursor, scope);
+      const rows = await database.attachment.findMany({
+        where: {
+          AND: [
+            {
+              status: "READY",
+              post: {
+                authorProfileId: request.params.userId,
+                status: "ACTIVE",
+                isAnonymous: false,
+              },
+            },
+            position,
+          ],
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: request.query.limit + 1,
+        select: {
+          id: true,
+          postId: true,
+          width: true,
+          height: true,
+          createdAt: true,
+        },
+      });
+      const page = rows.slice(0, request.query.limit);
+      const last = page.at(-1);
+      return {
+        attachments: page
+          .filter(
+            (item): item is typeof item & { postId: string } =>
+              item.postId !== null,
+          )
+          .map((item) => ({
+            id: item.id,
+            postId: item.postId,
+            width: item.width,
+            height: item.height,
+            url: `/v1/attachments/${item.id}/content`,
+          })),
+        nextCursor:
+          rows.length > request.query.limit && last
+            ? encodeCursor({
+                scope,
+                createdAt: last.createdAt.toISOString(),
+                id: last.id,
+              })
+            : null,
+      };
     },
   );
 

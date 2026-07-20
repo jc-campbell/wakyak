@@ -23,6 +23,7 @@
     "@fastify/static": "^10.1.0",
     "@getbrevo/brevo": "^6.0.2",
     "@wakyak/database": "workspace:*",
+    "@wakyak/contracts": "workspace:*",
     "better-auth": "^1.6.23",
     "dotenv": "^17.4.2",
     "fastify": "^5.10.0",

@@ -5,6 +5,7 @@ interface Author {
   userId: string;
   handle: string;
   displayName: string;
+  avatarUrl?: string | null;
 }
 
 interface ContentBase {
@@ -33,13 +34,16 @@ export function contentIdentity(
     active && value.isAnonymous && value.authorProfileId
       ? anonymousIdentity(postId, value.authorProfileId, env.ANONYMITY_SECRET)
       : null;
+  const rawReaction = value.reactions[0]?.value;
+  const viewerReaction: -1 | 1 | null =
+    rawReaction === 1 ? 1 : rawReaction === -1 ? -1 : null;
   return {
     body: active ? value.body : null,
     author: active && !value.isAnonymous ? value.author : null,
     anonymousIdentity: anonymous,
     isMine: value.authorProfileId === viewerProfileId,
     isPostAuthor: value.authorProfileId === postAuthorProfileId,
-    viewerReaction: value.reactions[0]?.value ?? null,
+    viewerReaction,
   };
 }
 

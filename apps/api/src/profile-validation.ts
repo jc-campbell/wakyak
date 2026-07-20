@@ -60,11 +60,10 @@ export const updateProfileBodySchema = z
   .object({
     handle: handleSchema.optional(),
     displayName: displayNameSchema.optional(),
+    avatarUrl: z.url().max(2048).nullable().optional(),
+    bio: z.string().trim().max(280).nullable().optional(),
   })
   .strict()
-  .refine(
-    (value) => value.handle !== undefined || value.displayName !== undefined,
-    {
-      message: "At least one editable field is required.",
-    },
-  );
+  .refine((value) => Object.values(value).some((item) => item !== undefined), {
+    message: "At least one editable field is required.",
+  });

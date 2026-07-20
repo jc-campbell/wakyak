@@ -23,6 +23,16 @@ export const testEnv = loadEnv({
 });
 
 export async function cleanDatabase(): Promise<void> {
+  await prisma.scheduledJobRun.deleteMany();
+  await prisma.outboxEvent.deleteMany();
+  await prisma.notification.deleteMany();
+  await prisma.postMilestone.deleteMany();
+  await prisma.postTrendAward.deleteMany();
+  await prisma.threadSubscription.deleteMany();
+  await prisma.follow.deleteMany();
+  await prisma.block.deleteMany();
+  await prisma.feedSeen.deleteMany();
+  await prisma.profileSettings.deleteMany();
   await prisma.reaction.deleteMany();
   await prisma.comment.deleteMany();
   await prisma.attachment.deleteMany();
@@ -41,6 +51,7 @@ export async function createTestApp(): Promise<{
     env: testEnv,
     emailService: email,
     logger: false,
+    backgroundJobs: false,
   });
   await app.ready();
   return { app, email };
@@ -66,7 +77,9 @@ export async function registerAndVerify(
       .slice(0, 16)
       .toUpperCase()
       .replace(/[ILOU]/g, "A");
-    await prisma.invitation.create({ data: { code } });
+    await prisma.invitation.create({
+      data: { code, expiresAt: new Date(Date.now() + 30 * 86_400_000) },
+    });
     const redemption = await app.inject({
       method: "POST",
       url: "/v1/invitations/redeem",

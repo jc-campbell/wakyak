@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "@fontsource-variable/geist";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: "Geist Variable", sans-serif;
 }
@@ -48,6 +50,103 @@
     #root {
       min-height: 100svh;
     }
+  }
+}
+
+@layer utilities {
+  .dark {
+    color-scheme: dark;
+    --color-stone-50: #1c1917;
+    --color-stone-100: #292524;
+    --color-stone-200: #44403c;
+    --color-stone-300: #78716c;
+    --color-stone-400: #a8a29e;
+    --color-stone-500: #a8a29e;
+    --color-stone-600: #d6d3d1;
+    --color-stone-700: #e7e5e4;
+    --color-stone-800: #f5f5f4;
+    --color-stone-900: #fafaf9;
+    --color-stone-950: #fafaf9;
+  }
+
+  .dark .bg-white {
+    background-color: #1c1917;
+  }
+
+  .dark .bg-white\/60,
+  .dark .bg-white\/70 {
+    background-color: rgb(28 25 23 / 0.72);
+  }
+
+  .dark .bg-white\/90,
+  .dark .bg-white\/95 {
+    background-color: rgb(28 25 23 / 0.92);
+  }
+
+  .dark .bg-stone-950 {
+    background-color: #0c0a09;
+  }
+
+  .dark .bg-stone-950\/40 {
+    background-color: rgb(0 0 0 / 0.72);
+  }
+
+  .dark .bg-teal-50 {
+    background-color: #042f2e;
+  }
+
+  .dark .bg-teal-50\/35 {
+    background-color: rgb(4 47 46 / 0.48);
+  }
+
+  .dark .border-teal-200 {
+    border-color: #115e59;
+  }
+
+  .dark .text-teal-700 {
+    color: #5eead4;
+  }
+
+  .dark .text-teal-800 {
+    color: #99f6e4;
+  }
+
+  .dark .bg-amber-50 {
+    background-color: #451a03;
+  }
+
+  .dark .text-amber-700 {
+    color: #fcd34d;
+  }
+
+  .dark .bg-red-50 {
+    background-color: #450a0a;
+  }
+
+  .dark .text-red-700 {
+    color: #fca5a5;
+  }
+
+  .dark .border-white\/70 {
+    border-color: #44403c;
+  }
+
+  .dark .hover\:bg-white\/60:hover,
+  .dark .hover\:bg-white\/70:hover {
+    background-color: rgb(41 37 36 / 0.88);
+  }
+
+  .dark [class*="data-[active=true]:bg-white"][data-active="true"] {
+    background-color: #292524;
+  }
+
+  .dark [class*="data-[active=true]:bg-teal-50"][data-active="true"],
+  .dark [class*="data-[checked=true]:bg-teal-50"][data-checked="true"] {
+    background-color: #042f2e;
+  }
+
+  .dark [class*="data-[unread=true]:bg-teal-50/35"][data-unread="true"] {
+    background-color: rgb(4 47 46 / 0.48);
   }
 }
 

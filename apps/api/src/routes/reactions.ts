@@ -1,3 +1,7 @@
+import {
+  reactionRequestSchema,
+  reactionResponseSchema,
+} from "@wakyak/contracts";
 import { Prisma, type PrismaClient } from "@wakyak/database";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -9,11 +13,6 @@ import { requireProfile } from "../plugins/authentication.js";
 import { errorResponseSchema } from "../schemas.js";
 
 const params = z.object({ id: z.uuid() });
-const response = z.object({
-  viewerReaction: z.union([z.literal(-1), z.literal(1)]).nullable(),
-  netScore: z.number().int(),
-});
-
 function deltas(oldValue: number | null, newValue: number | null) {
   return {
     up: Number(newValue === 1) - Number(oldValue === 1),
@@ -49,6 +48,24 @@ export function registerReactionRoutes(
       });
       if (!post || post.status !== "ACTIVE")
         throw new AppError(404, "CONTENT_NOT_FOUND", "Post not found.");
+      if (
+        post.authorProfileId &&
+        (await tx.block.count({
+          where: {
+            OR: [
+              {
+                blockerProfileId: profileId,
+                blockedProfileId: post.authorProfileId,
+              },
+              {
+                blockerProfileId: post.authorProfileId,
+                blockedProfileId: profileId,
+              },
+            ],
+          },
+        }))
+      )
+        throw new AppError(404, "CONTENT_NOT_FOUND", "Post not found.");
       if (value === -1 && post.authorProfileId === profileId)
         throw new AppError(
           409,
@@ -80,6 +97,13 @@ export function registerReactionRoutes(
           hotRank: hotRank(netScore, post.createdAt),
         },
       });
+      await tx.outboxEvent.create({
+        data: {
+          type: "POST_SCORE_CHANGED",
+          dedupeKey: `post-score:${postId}:${profileId}:${crypto.randomUUID()}`,
+          payload: { postId },
+        },
+      });
       return { viewerReaction: value, netScore };
     });
 
@@ -106,6 +130,24 @@ export function registerReactionRoutes(
         !comment ||
         comment.status !== "ACTIVE" ||
         comment.post.status !== "ACTIVE"
+      )
+        throw new AppError(404, "CONTENT_NOT_FOUND", "Comment not found.");
+      if (
+        comment.authorProfileId &&
+        (await tx.block.count({
+          where: {
+            OR: [
+              {
+                blockerProfileId: profileId,
+                blockedProfileId: comment.authorProfileId,
+              },
+              {
+                blockerProfileId: comment.authorProfileId,
+                blockedProfileId: profileId,
+              },
+            ],
+          },
+        }))
       )
         throw new AppError(404, "CONTENT_NOT_FOUND", "Comment not found.");
       if (value === -1 && comment.authorProfileId === profileId)
@@ -143,9 +185,9 @@ export function registerReactionRoutes(
       preHandler: requireProfile,
       schema: {
         params,
-        body: z.object({ value: z.union([z.literal(-1), z.literal(1)]) }),
+        body: reactionRequestSchema,
         response: {
-          200: response,
+          200: reactionResponseSchema,
           404: errorResponseSchema,
           409: errorResponseSchema,
         },
@@ -162,7 +204,10 @@ export function registerReactionRoutes(
     "/v1/posts/:id/reaction",
     {
       preHandler: requireProfile,
-      schema: { params, response: { 200: response, 404: errorResponseSchema } },
+      schema: {
+        params,
+        response: { 200: reactionResponseSchema, 404: errorResponseSchema },
+      },
     },
     async (request) =>
       mutatePost(request.params.id, request.profile!.userId, null),
@@ -173,9 +218,9 @@ export function registerReactionRoutes(
       preHandler: requireProfile,
       schema: {
         params,
-        body: z.object({ value: z.union([z.literal(-1), z.literal(1)]) }),
+        body: reactionRequestSchema,
         response: {
-          200: response,
+          200: reactionResponseSchema,
           404: errorResponseSchema,
           409: errorResponseSchema,
         },
@@ -192,7 +237,10 @@ export function registerReactionRoutes(
     "/v1/comments/:id/reaction",
     {
       preHandler: requireProfile,
-      schema: { params, response: { 200: response, 404: errorResponseSchema } },
+      schema: {
+        params,
+        response: { 200: reactionResponseSchema, 404: errorResponseSchema },
+      },
     },
     async (request) =>
       mutateComment(request.params.id, request.profile!.userId, null),

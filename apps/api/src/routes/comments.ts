@@ -1,4 +1,9 @@
 import type { PrismaClient } from "@wakyak/database";
+import {
+  commentResponseSchema,
+  commentsResponseSchema,
+  createCommentRequestSchema,
+} from "@wakyak/contracts";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -10,8 +15,8 @@ import { contentBody } from "../content/validation.js";
 import { AppError } from "../errors.js";
 import { requireProfile } from "../plugins/authentication.js";
 import { errorResponseSchema } from "../schemas.js";
+import { blockedProfileIds } from "../social/visibility.js";
 
-const output = z.any();
 const idParams = z.object({ id: z.uuid() });
 const postParams = z.object({ postId: z.uuid() });
 
@@ -36,13 +41,9 @@ export function registerCommentRoutes(
       preHandler: requireProfile,
       schema: {
         params: postParams,
-        body: z.object({
-          body: z.string(),
-          isAnonymous: z.boolean().default(false),
-          parentCommentId: z.uuid().optional().nullable(),
-        }),
+        body: createCommentRequestSchema,
         response: {
-          201: output,
+          201: commentResponseSchema,
           400: errorResponseSchema,
           404: errorResponseSchema,
           409: errorResponseSchema,
@@ -52,12 +53,23 @@ export function registerCommentRoutes(
     async (request, reply) => {
       const body = contentBody(request.body.body, true)!;
       const profileId = request.profile!.userId;
+      const settings = await database.profileSettings.upsert({
+        where: { profileId },
+        create: { profileId },
+        update: {},
+      });
+      const isAnonymous =
+        request.body.isAnonymous ?? settings.defaultReplyAnonymous;
+      const blocked = await blockedProfileIds(database, profileId);
       const comment = await database.$transaction(async (tx) => {
         const post = await tx.post.findFirst({
           where: { id: request.params.postId, status: "ACTIVE" },
-          select: { id: true },
+          select: { id: true, authorProfileId: true },
         });
-        if (!post)
+        if (
+          !post ||
+          (post.authorProfileId && blocked.includes(post.authorProfileId))
+        )
           throw new AppError(404, "CONTENT_NOT_FOUND", "Post not found.");
         let depth = 0;
         let parentId: string | null = null;
@@ -68,9 +80,12 @@ export function registerCommentRoutes(
               postId: post.id,
               status: "ACTIVE",
             },
-            select: { id: true, depth: true },
+            select: { id: true, depth: true, authorProfileId: true },
           });
-          if (!parent)
+          if (
+            !parent ||
+            (parent.authorProfileId && blocked.includes(parent.authorProfileId))
+          )
             throw new AppError(
               409,
               "CONTENT_INACTIVE",
@@ -84,7 +99,7 @@ export function registerCommentRoutes(
             postId: post.id,
             authorProfileId: profileId,
             body,
-            isAnonymous: request.body.isAnonymous,
+            isAnonymous,
             parentCommentId: parentId,
             parentPostId: parentId ? post.id : null,
             depth,
@@ -94,6 +109,18 @@ export function registerCommentRoutes(
         });
         await tx.reaction.create({
           data: { profileId, commentId: created.id, value: 1 },
+        });
+        await tx.threadSubscription.upsert({
+          where: { profileId_postId: { profileId, postId: post.id } },
+          create: { profileId, postId: post.id },
+          update: {},
+        });
+        await tx.outboxEvent.create({
+          data: {
+            type: "COMMENT_CREATED",
+            dedupeKey: `comment:${created.id}`,
+            payload: { commentId: created.id },
+          },
         });
         await tx.post.update({
           where: { id: post.id },
@@ -127,18 +154,25 @@ export function registerCommentRoutes(
           limit: z.coerce.number().int().min(1).max(50).default(25),
         }),
         response: {
-          200: output,
+          200: commentsResponseSchema,
           400: errorResponseSchema,
           404: errorResponseSchema,
         },
       },
     },
     async (request) => {
+      const blocked = await blockedProfileIds(
+        database,
+        request.profile!.userId,
+      );
       const post = await database.post.findFirst({
         where: { id: request.params.postId, status: "ACTIVE" },
-        select: { id: true },
+        select: { id: true, authorProfileId: true },
       });
-      if (!post)
+      if (
+        !post ||
+        (post.authorProfileId && blocked.includes(post.authorProfileId))
+      )
         throw new AppError(404, "CONTENT_NOT_FOUND", "Post not found.");
       const { sort, limit } = request.query;
       const cursor = decodeCursor<Record<string, unknown>>(
@@ -180,7 +214,20 @@ export function registerCommentRoutes(
               { id: "desc" as const },
             ];
       const rows = await database.comment.findMany({
-        where: { AND: [{ postId: post.id, parentCommentId: null }, position] },
+        where: {
+          AND: [
+            { postId: post.id, parentCommentId: null },
+            blocked.length
+              ? {
+                  OR: [
+                    { authorProfileId: null },
+                    { authorProfileId: { notIn: blocked } },
+                  ],
+                }
+              : {},
+            position,
+          ],
+        },
         orderBy,
         take: limit + 1,
         include: commentInclude(request.profile!.userId),
@@ -216,18 +263,32 @@ export function registerCommentRoutes(
           limit: z.coerce.number().int().min(1).max(50).default(25),
         }),
         response: {
-          200: output,
+          200: commentsResponseSchema,
           400: errorResponseSchema,
           404: errorResponseSchema,
         },
       },
     },
     async (request) => {
+      const blocked = await blockedProfileIds(
+        database,
+        request.profile!.userId,
+      );
       const parent = await database.comment.findUnique({
         where: { id: request.params.id },
-        select: { id: true, post: { select: { status: true } } },
+        select: {
+          id: true,
+          authorProfileId: true,
+          post: { select: { status: true, authorProfileId: true } },
+        },
       });
-      if (!parent || parent.post.status !== "ACTIVE")
+      if (
+        !parent ||
+        parent.post.status !== "ACTIVE" ||
+        (parent.authorProfileId && blocked.includes(parent.authorProfileId)) ||
+        (parent.post.authorProfileId &&
+          blocked.includes(parent.post.authorProfileId))
+      )
         throw new AppError(404, "CONTENT_NOT_FOUND", "Comment not found.");
       const cursor = decodeCursor<Record<string, unknown>>(
         request.query.cursor,
@@ -244,7 +305,20 @@ export function registerCommentRoutes(
         };
       }
       const rows = await database.comment.findMany({
-        where: { AND: [{ parentCommentId: parent.id }, position] },
+        where: {
+          AND: [
+            { parentCommentId: parent.id },
+            blocked.length
+              ? {
+                  OR: [
+                    { authorProfileId: null },
+                    { authorProfileId: { notIn: blocked } },
+                  ],
+                }
+              : {},
+            position,
+          ],
+        },
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         take: request.query.limit + 1,
         include: commentInclude(request.profile!.userId),

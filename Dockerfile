@@ -25,6 +25,7 @@ ENV SHARP_FORCE_GLOBAL_LIBVIPS=1 \
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json eslint.config.js ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/database/package.json packages/database/package.json
 RUN pnpm install --frozen-lockfile
 RUN cd apps/api/node_modules/sharp \
@@ -40,14 +41,14 @@ FROM node:24-bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 libexif12 libexpat1 libffi8 libgif7 libglib2.0-0 libheif1 \
     libjpeg62-turbo liblcms2-2 liborc-0.4-0 libpng16-16 libtiff6 libwebp7 libwebpdemux2 libwebpmux3 \
-    libmagickcore-6.q16-6 libopenexr-3-1-30 libopenjp2-7 librsvg2-2 \
+    libmagickcore-6.q16-6 libopenexr-3-1-30 libopenjp2-7 librsvg2-2 openssl \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=libvips /usr/local /usr/local
 ENV NODE_ENV=production \
     LD_LIBRARY_PATH=/usr/local/lib/aarch64-linux-gnu:/usr/local/lib/x86_64-linux-gnu:/usr/local/lib \
     SHARP_FORCE_GLOBAL_LIBVIPS=1
 WORKDIR /app
-RUN corepack enable
+RUN corepack enable && corepack install --global pnpm@10.33.2
 COPY --from=build /app /app
 EXPOSE 4000
-CMD ["sh", "-c", "pnpm db:migrate:deploy && API_HOST=0.0.0.0 API_PORT=${PORT:-4000} pnpm --filter @wakyak/api start"]
+CMD ["sh", "-c", "API_HOST=0.0.0.0 API_PORT=${PORT:-4000} exec pnpm --filter @wakyak/api start"]

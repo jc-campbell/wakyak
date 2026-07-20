@@ -1,3 +1,10 @@
+import {
+  createInvitationRequestSchema,
+  invitationRedeemRequestSchema,
+  invitationResponseSchema,
+  invitationsQuerySchema,
+  invitationsResponseSchema,
+} from "@wakyak/contracts";
 import type { PrismaClient } from "@wakyak/database";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -14,23 +21,15 @@ import {
 import { requireOwner } from "../plugins/authentication.js";
 import { errorResponseSchema } from "../schemas.js";
 
-const invitationSchema = z.object({
-  id: z.string(),
-  code: z.string(),
-  label: z.string().nullable(),
-  status: z.enum(["AVAILABLE", "CONSUMED", "REVOKED"]),
-  createdAt: z.string(),
-  consumedAt: z.string().nullable(),
-  revokedAt: z.string().nullable(),
-});
-
 function statusOf(invitation: {
+  status: "ACTIVE" | "USED" | "REVOKED" | "EXPIRED";
+  expiresAt: Date;
   consumedAt: Date | null;
   revokedAt: Date | null;
-}): "AVAILABLE" | "CONSUMED" | "REVOKED" {
-  if (invitation.revokedAt) return "REVOKED";
-  if (invitation.consumedAt) return "CONSUMED";
-  return "AVAILABLE";
+}): "ACTIVE" | "USED" | "REVOKED" | "EXPIRED" {
+  if (invitation.status === "ACTIVE" && invitation.expiresAt <= new Date())
+    return "EXPIRED";
+  return invitation.status;
 }
 
 function invitationDto(invitation: {
@@ -38,6 +37,8 @@ function invitationDto(invitation: {
   code: string;
   label: string | null;
   createdAt: Date;
+  expiresAt: Date;
+  status: "ACTIVE" | "USED" | "REVOKED" | "EXPIRED";
   consumedAt: Date | null;
   revokedAt: Date | null;
 }) {
@@ -46,6 +47,7 @@ function invitationDto(invitation: {
     code: formatInvitationCode(invitation.code),
     status: statusOf(invitation),
     createdAt: invitation.createdAt.toISOString(),
+    expiresAt: invitation.expiresAt.toISOString(),
     consumedAt: invitation.consumedAt?.toISOString() ?? null,
     revokedAt: invitation.revokedAt?.toISOString() ?? null,
   };
@@ -62,7 +64,7 @@ export function registerInvitationRoutes(
     "/v1/invitations/redeem",
     {
       schema: {
-        body: z.object({ code: z.string().min(1).max(40) }),
+        body: invitationRedeemRequestSchema,
         response: {
           204: z.null(),
           400: errorResponseSchema,
@@ -82,7 +84,19 @@ export function registerInvitationRoutes(
       const invitation = await database.invitation.findUnique({
         where: { code },
       });
-      if (!invitation || invitation.consumedAt || invitation.revokedAt) {
+      if (
+        !invitation ||
+        invitation.status !== "ACTIVE" ||
+        invitation.expiresAt <= new Date()
+      ) {
+        if (
+          invitation?.status === "ACTIVE" &&
+          invitation.expiresAt <= new Date()
+        )
+          await database.invitation.update({
+            where: { id: invitation.id },
+            data: { status: "EXPIRED" },
+          });
         throw new AppError(
           409,
           "INVITATION_UNAVAILABLE",
@@ -101,14 +115,29 @@ export function registerInvitationRoutes(
     },
   );
 
+  server.get(
+    "/v1/admin/access",
+    {
+      preHandler: requireOwner,
+      schema: {
+        response: {
+          204: z.null(),
+          401: errorResponseSchema,
+          403: errorResponseSchema,
+        },
+      },
+    },
+    async (_request, reply) => reply.code(204).send(null),
+  );
+
   server.post(
     "/v1/admin/invitations",
     {
       preHandler: requireOwner,
       schema: {
-        body: z.object({ label: z.string().trim().min(1).max(80).optional() }),
+        body: createInvitationRequestSchema,
         response: {
-          201: z.object({ invitation: invitationSchema }),
+          201: invitationResponseSchema,
           401: errorResponseSchema,
           403: errorResponseSchema,
         },
@@ -120,6 +149,7 @@ export function registerInvitationRoutes(
           const invitation = await database.invitation.create({
             data: {
               code: generateInvitationCode(),
+              expiresAt: new Date(Date.now() + 30 * 86_400_000),
               ...(request.body.label === undefined
                 ? {}
                 : { label: request.body.label }),
@@ -141,15 +171,9 @@ export function registerInvitationRoutes(
     {
       preHandler: requireOwner,
       schema: {
-        querystring: z.object({
-          cursor: z.string().optional(),
-          limit: z.coerce.number().int().min(1).max(50).default(25),
-        }),
+        querystring: invitationsQuerySchema,
         response: {
-          200: z.object({
-            invitations: z.array(invitationSchema),
-            nextCursor: z.string().nullable(),
-          }),
+          200: invitationsResponseSchema,
           401: errorResponseSchema,
           403: errorResponseSchema,
         },
@@ -219,8 +243,12 @@ export function registerInvitationRoutes(
     },
     async (request, reply) => {
       const updated = await database.invitation.updateMany({
-        where: { id: request.params.id, consumedAt: null, revokedAt: null },
-        data: { revokedAt: new Date() },
+        where: {
+          id: request.params.id,
+          status: "ACTIVE",
+          expiresAt: { gt: new Date() },
+        },
+        data: { revokedAt: new Date(), status: "REVOKED" },
       });
       if (updated.count === 0) {
         const found = await database.invitation.findUnique({

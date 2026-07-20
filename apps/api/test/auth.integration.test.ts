@@ -28,7 +28,10 @@ describe("email/password authentication", () => {
     const email = "auth-flow@example.com";
     const password = "correct-horse-battery-staple";
     const invitation = await prisma.invitation.create({
-      data: { code: "0123456789ABCDEF" },
+      data: {
+        code: "0123456789ABCDEF",
+        expiresAt: new Date(Date.now() + 30 * 86_400_000),
+      },
     });
     const redemption = await app.inject({
       method: "POST",

@@ -9,12 +9,13 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "dev:apps": "turbo dev",
+    "dev:apps": "turbo run build --filter=@wakyak/contracts --filter=@wakyak/database && turbo dev",
     "build": "turbo build",
     "typecheck": "turbo typecheck",
     "lint": "turbo lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "verify": "pnpm format:check && pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "test": "turbo test",
     "test:integration": "pnpm --filter @wakyak/api test:integration",
     "db:generate": "pnpm --filter @wakyak/database db:generate",
@@ -22,6 +23,11 @@
     "db:migrate:deploy": "pnpm --filter @wakyak/database db:migrate:deploy",
     "db:studio": "pnpm --filter @wakyak/database db:studio",
     "db:reset": "pnpm --filter @wakyak/database db:reset"
+  },
+  "pnpm": {
+    "overrides": {
+      "@hono/node-server": ">=1.19.13"
+    }
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

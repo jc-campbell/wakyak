@@ -1,12 +1,18 @@
+import {
+  editableProfileSchema,
+  meResponseSchema,
+  profileDetailsSchema,
+} from "@wakyak/contracts";
 import { z } from "zod";
 
-export const publicProfileSchema = z.object({
-  userId: z.string(),
-  handle: z.string(),
-  displayName: z.string(),
+export const editableProfileResponseSchema = z.object({
+  profile: editableProfileSchema,
 });
-
-export const profileResponseSchema = z.object({ profile: publicProfileSchema });
+export const profileDetailsResponseSchema = z.object({
+  profile: profileDetailsSchema,
+});
+/** @deprecated Prefer the response schema for the specific profile route. */
+export const profileResponseSchema = editableProfileResponseSchema;
 
 export const errorResponseSchema = z.object({
   error: z.object({
@@ -16,17 +22,7 @@ export const errorResponseSchema = z.object({
   }),
 });
 
-export const authUserSchema = z.object({
-  id: z.string(),
-  email: z.string(),
-  emailVerified: z.boolean(),
-});
-
-export const meResponseSchema = z.object({
-  user: authUserSchema,
-  profile: publicProfileSchema.nullable(),
-  isOwner: z.boolean(),
-});
+export { meResponseSchema };
 
 export const errorResponses = {
   400: errorResponseSchema,

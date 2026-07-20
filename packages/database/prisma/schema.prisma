@@ -20,6 +20,36 @@ enum AttachmentStatus {
   FAILED
 }
 
+enum InvitationStatus {
+  ACTIVE
+  USED
+  REVOKED
+  EXPIRED
+}
+
+enum NotificationType {
+  MENTION
+  DIRECT_REPLY
+  THREAD_COMMENT
+  NEW_FOLLOWER
+  SCORE_MILESTONE
+  POST_TRENDING
+  SYSTEM
+}
+
+enum OutboxStatus {
+  AVAILABLE
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+enum ScheduledJobStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 model User {
   id            String      @id
   name          String
@@ -91,6 +121,8 @@ model Profile {
   authUserId  String   @unique
   handle      String   @unique
   displayName String
+  avatarUrl   String?
+  bio         String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -102,6 +134,17 @@ model Profile {
   attachments       Attachment[]
   moderatedPosts    Post[]       @relation("PostModerator")
   moderatedComments Comment[]    @relation("CommentModerator")
+  following         Follow[]     @relation("FollowFollower")
+  followers         Follow[]     @relation("FollowFollowing")
+  blocksCreated     Block[]      @relation("Blocker")
+  blocksReceived    Block[]      @relation("Blocked")
+  seenPosts         FeedSeen[]
+  settings          ProfileSettings?
+  notifications     Notification[] @relation("NotificationRecipient")
+  sentNotifications Notification[] @relation("NotificationActor")
+  threadSubscriptions ThreadSubscription[]
+
+  @@index([handle])
 }
 
 model Invitation {
@@ -109,11 +152,13 @@ model Invitation {
   code       String    @unique
   label      String?
   createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  status     InvitationStatus @default(ACTIVE)
   consumedAt DateTime?
   revokedAt  DateTime?
   user       User?
 
-  @@index([revokedAt, consumedAt, createdAt, id])
+  @@index([status, expiresAt, createdAt, id])
 }
 
 model Post {
@@ -137,6 +182,11 @@ model Post {
   comments           Comment[]
   reactions          Reaction[]
   attachments        Attachment[]
+  notifications      Notification[]
+  threadSubscriptions ThreadSubscription[]
+  milestones         PostMilestone[]
+  trendAward         PostTrendAward?
+  seenBy             FeedSeen[]
 
   @@index([status, createdAt, id])
   @@index([status, netScore, createdAt, id])
@@ -169,12 +219,147 @@ model Comment {
   removedByProfileId String?
   removedBy          Profile?      @relation("CommentModerator", fields: [removedByProfileId], references: [userId], onDelete: SetNull)
   reactions          Reaction[]
+  notifications      Notification[]
 
   @@unique([postId, id])
   @@index([postId, parentCommentId, status, netScore, createdAt, id])
   @@index([postId, parentCommentId, status, createdAt, id])
   @@index([parentCommentId, createdAt, id])
   @@index([authorProfileId, createdAt, id])
+}
+
+model Follow {
+  id                 String   @id @default(uuid())
+  followerProfileId  String
+  followingProfileId String
+  follower           Profile  @relation("FollowFollower", fields: [followerProfileId], references: [userId], onDelete: Cascade)
+  following          Profile  @relation("FollowFollowing", fields: [followingProfileId], references: [userId], onDelete: Cascade)
+  createdAt          DateTime @default(now())
+
+  @@unique([followerProfileId, followingProfileId])
+  @@index([followingProfileId, createdAt, id])
+}
+
+model Block {
+  id               String   @id @default(uuid())
+  blockerProfileId String
+  blockedProfileId String
+  blocker          Profile  @relation("Blocker", fields: [blockerProfileId], references: [userId], onDelete: Cascade)
+  blocked          Profile  @relation("Blocked", fields: [blockedProfileId], references: [userId], onDelete: Cascade)
+  displaySnapshot  Json
+  sourceType       String
+  sourceId         String
+  createdAt        DateTime @default(now())
+
+  @@unique([blockerProfileId, blockedProfileId])
+  @@index([blockedProfileId, createdAt, id])
+}
+
+model FeedSeen {
+  profileId  String
+  postId     String
+  profile    Profile  @relation(fields: [profileId], references: [userId], onDelete: Cascade)
+  post       Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  firstSeenAt DateTime @default(now())
+
+  @@id([profileId, postId])
+  @@index([postId, firstSeenAt])
+}
+
+model ProfileSettings {
+  profileId                 String  @id
+  profile                   Profile @relation(fields: [profileId], references: [userId], onDelete: Cascade)
+  notifyMentions            Boolean @default(true)
+  notifyDirectReplies       Boolean @default(true)
+  notifyThreadComments      Boolean @default(true)
+  notifyNewFollowers        Boolean @default(true)
+  notifyScoreMilestones     Boolean @default(true)
+  notifyPostTrending        Boolean @default(true)
+  defaultPostAnonymous      Boolean @default(true)
+  defaultReplyAnonymous     Boolean @default(true)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+}
+
+model ThreadSubscription {
+  id        String   @id @default(uuid())
+  profileId String
+  postId    String
+  profile   Profile  @relation(fields: [profileId], references: [userId], onDelete: Cascade)
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, postId])
+  @@index([postId, enabled])
+}
+
+model Notification {
+  id                 String           @id @default(uuid())
+  recipientProfileId String
+  actorProfileId     String?
+  type               NotificationType
+  postId             String?
+  commentId          String?
+  payload             Json
+  dedupeKey           String           @unique
+  readAt              DateTime?
+  createdAt           DateTime         @default(now())
+  recipient           Profile          @relation("NotificationRecipient", fields: [recipientProfileId], references: [userId], onDelete: Cascade)
+  actor               Profile?         @relation("NotificationActor", fields: [actorProfileId], references: [userId], onDelete: SetNull)
+  post                Post?            @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment             Comment?         @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@index([recipientProfileId, createdAt, id])
+  @@index([createdAt])
+}
+
+model OutboxEvent {
+  id          String       @id @default(uuid())
+  type        String
+  payload     Json
+  dedupeKey   String       @unique
+  status      OutboxStatus @default(AVAILABLE)
+  attempts    Int          @default(0)
+  availableAt DateTime     @default(now())
+  lockedAt    DateTime?
+  lockedBy    String?
+  lastError   String?
+  processedAt DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@index([status, availableAt, createdAt])
+}
+
+model PostMilestone {
+  id        String   @id @default(uuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  threshold Int
+  awardedAt DateTime @default(now())
+
+  @@unique([postId, threshold])
+}
+
+model PostTrendAward {
+  postId    String   @id
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  awardedAt DateTime @default(now())
+}
+
+model ScheduledJobRun {
+  id           String             @id @default(uuid())
+  jobKey       String
+  scheduledFor DateTime
+  status       ScheduledJobStatus @default(RUNNING)
+  lockedBy     String
+  startedAt    DateTime           @default(now())
+  completedAt  DateTime?
+  error        String?
+
+  @@unique([jobKey, scheduledFor])
+  @@index([status, startedAt])
 }
 
 model Reaction {

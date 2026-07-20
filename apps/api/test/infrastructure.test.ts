@@ -39,6 +39,9 @@ describe("infrastructure routes", () => {
     const response = await app.inject({ method: "GET", url: "/health" });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: "ok" });
+    expect(response.headers["content-security-policy"]).toContain(
+      "img-src 'self' data: http://localhost:9090",
+    );
   });
 
   it("returns a sanitized readiness failure", async () => {
@@ -77,6 +80,8 @@ describe("infrastructure routes", () => {
       logger: false,
       serveWeb: true,
       webRoot,
+      attachmentCleanup: false,
+      backgroundJobs: false,
     });
     apps.push(app);
 

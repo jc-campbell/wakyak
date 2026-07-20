@@ -1,23 +1,20 @@
+import {
+  attachmentCompleteResponseSchema,
+  attachmentUploadRequestSchema,
+  attachmentUploadsResponseSchema,
+} from "@wakyak/contracts";
 import type { PrismaClient } from "@wakyak/database";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 
 import type { ImageProcessor } from "../attachments/images.js";
-import { IMAGE_TYPES, MAX_IMAGE_BYTES } from "../attachments/images.js";
 import type { ObjectStorage } from "../attachments/storage.js";
 import { AppError } from "../errors.js";
 import { requireProfile } from "../plugins/authentication.js";
 import { errorResponseSchema } from "../schemas.js";
 
 const params = z.object({ id: z.uuid() });
-const uploadSchema = z.object({
-  id: z.string(),
-  uploadUrl: z.string(),
-  expiresAt: z.string(),
-  headers: z.record(z.string(), z.string()),
-});
-
 export function registerAttachmentRoutes(
   app: FastifyInstance,
   database: PrismaClient,
@@ -26,24 +23,32 @@ export function registerAttachmentRoutes(
 ): void {
   const server = app.withTypeProvider<ZodTypeProvider>();
 
+  const browserUploadUrl = (value: string) => {
+    if (app.env.NODE_ENV !== "development") return value;
+    try {
+      const upload = new URL(value);
+      const storage = new URL(app.env.S3_ENDPOINT);
+      return upload.origin === storage.origin
+        ? `/__storage${upload.pathname}${upload.search}`
+        : value;
+    } catch {
+      return value;
+    }
+  };
+
+  const browserDownloadUrl = (value: string) =>
+    app.env.NODE_ENV === "development" && app.env.VITE_TAILSCALE_HOST
+      ? browserUploadUrl(value)
+      : value;
+
   server.post(
     "/v1/attachments/uploads",
     {
       preHandler: requireProfile,
       schema: {
-        body: z.object({
-          files: z
-            .array(
-              z.object({
-                contentType: z.enum(IMAGE_TYPES),
-                byteSize: z.number().int().min(1).max(MAX_IMAGE_BYTES),
-              }),
-            )
-            .min(1)
-            .max(4),
-        }),
+        body: attachmentUploadRequestSchema,
         response: {
-          201: z.object({ uploads: z.array(uploadSchema) }),
+          201: attachmentUploadsResponseSchema,
           400: errorResponseSchema,
         },
       },
@@ -72,7 +77,7 @@ export function registerAttachmentRoutes(
           );
           uploads.push({
             id: attachment.id,
-            uploadUrl,
+            uploadUrl: browserUploadUrl(uploadUrl),
             expiresAt: expiresAt.toISOString(),
             headers: { "content-type": file.contentType },
           });
@@ -92,15 +97,7 @@ export function registerAttachmentRoutes(
       schema: {
         params,
         response: {
-          200: z.object({
-            attachment: z.object({
-              id: z.string(),
-              status: z.literal("READY"),
-              width: z.number().int(),
-              height: z.number().int(),
-              url: z.string(),
-            }),
-          }),
+          200: attachmentCompleteResponseSchema,
           400: errorResponseSchema,
           403: errorResponseSchema,
           404: errorResponseSchema,
@@ -267,7 +264,7 @@ export function registerAttachmentRoutes(
       schema: {
         params,
         response: {
-          302: z.any(),
+          302: z.string(),
           403: errorResponseSchema,
           404: errorResponseSchema,
         },
@@ -302,8 +299,12 @@ export function registerAttachmentRoutes(
           "You do not own this attachment.",
         );
       }
-      const url = await storage.presignDownload(attachment.outputStorageKey);
-      return reply.redirect(url, 302);
+      const url = browserDownloadUrl(
+        await storage.presignDownload(attachment.outputStorageKey),
+      );
+      return reply
+        .header("Cross-Origin-Resource-Policy", "cross-origin")
+        .redirect(url, 302);
     },
   );
 }

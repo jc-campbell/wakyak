@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from "@wakyak/database";
+import { authConfigResponseSchema } from "@wakyak/contracts";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -11,6 +12,15 @@ export function registerSystemRoutes(
   database: PrismaClient,
 ): void {
   const server = app.withTypeProvider<ZodTypeProvider>();
+
+  server.get(
+    "/v1/auth/config",
+    {
+      schema: { response: { 200: authConfigResponseSchema } },
+      config: { rateLimit: false },
+    },
+    () => ({ googleEnabled: app.env.GOOGLE_AUTH_ENABLED }),
+  );
 
   server.get(
     "/health",

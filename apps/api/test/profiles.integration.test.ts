@@ -82,6 +82,8 @@ describe("profile routes", () => {
       userId: "person-123",
       handle: "person_123",
       displayName: "Person",
+      avatarUrl: null,
+      bio: null,
     };
     expect(created.json()).toEqual({ profile: expected });
 
@@ -100,10 +102,7 @@ describe("profile routes", () => {
       error: { code: "PROFILE_ALREADY_EXISTS" },
     });
 
-    for (const url of [
-      "/v1/profiles/PERSON-123",
-      "/v1/profiles/by-handle/@PERSON_123",
-    ]) {
+    for (const url of ["/v1/profiles/PERSON-123"]) {
       const response = await app.inject({
         method: "GET",
         url,
@@ -111,11 +110,16 @@ describe("profile routes", () => {
       });
       expect(response.statusCode).toBe(200);
       const body = response.json<{ profile: typeof expected }>();
-      expect(body).toEqual({ profile: expected });
+      expect(body).toMatchObject({ profile: expected });
       expect(Object.keys(body.profile).sort()).toEqual([
+        "avatarUrl",
+        "bio",
+        "counts",
         "displayName",
         "handle",
         "userId",
+        "viewerIsFollowing",
+        "wakarma",
       ]);
       expect(response.body).not.toMatch(
         /authUserId|email|session|account|provider/i,
@@ -124,7 +128,7 @@ describe("profile routes", () => {
 
     const updated = await app.inject({
       method: "PATCH",
-      url: "/v1/profile",
+      url: "/v1/me/profile",
       headers: { cookie },
       payload: { handle: "@New_Handle", displayName: "  New Display Name  " },
     });
@@ -141,11 +145,11 @@ describe("profile routes", () => {
       {},
       { userId: "changed-id" },
       { authUserId: "changed" },
-      { bio: "no" },
+      { bio: 42 },
     ]) {
       const response = await app.inject({
         method: "PATCH",
-        url: "/v1/profile",
+        url: "/v1/me/profile",
         headers: { cookie },
         payload,
       });
@@ -162,7 +166,7 @@ describe("profile routes", () => {
     const cookie = await authenticatedUser("missing@example.com");
     const patch = await app.inject({
       method: "PATCH",
-      url: "/v1/profile",
+      url: "/v1/me/profile",
       headers: { cookie },
       payload: { displayName: "No Profile" },
     });
@@ -181,10 +185,7 @@ describe("profile routes", () => {
       },
     });
 
-    for (const url of [
-      "/v1/profiles/missing-user",
-      "/v1/profiles/by-handle/missing_handle",
-    ]) {
+    for (const url of ["/v1/profiles/missing-user"]) {
       const response = await app.inject({
         method: "GET",
         url,
@@ -253,7 +254,7 @@ describe("profile routes", () => {
     });
     const failedUpdate = await app.inject({
       method: "PATCH",
-      url: "/v1/profile",
+      url: "/v1/me/profile",
       headers: { cookie: second },
       payload: { handle: "first_handle" },
     });
