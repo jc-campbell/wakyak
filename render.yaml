@@ -25,7 +25,7 @@ services:
         value: "1048576"
       - key: DATABASE_URL
         fromDatabase:
-          name: wakyak-postgres
+          name: postgres
           property: connectionString
       - key: BETTER_AUTH_SECRET
         generateValue: true
@@ -61,13 +61,3 @@ services:
         sync: false
       - key: S3_FORCE_PATH_STYLE
         value: "true"
-
-databases:
-  - name: wakyak-postgres
-    region: virginia
-    plan: basic-256mb
-    diskSizeGB: 5
-    postgresMajorVersion: "17"
-    databaseName: wakyak
-    user: wakyak
-    ipAllowList: []
