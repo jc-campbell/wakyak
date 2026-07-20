@@ -258,7 +258,7 @@ Brevo mode never logs the sensitive verification/reset URL. No live Brevo delive
 
 ## Render configuration
 
-The versioned `render.yaml` Blueprint creates a free Docker web service named `wakyak-docker` in Render's Virginia region and connects it to the existing free Render Postgres resource named `postgres`. The database is referenced by name rather than managed by the Blueprint, so syncing the Blueprint does not attempt to create or replace it. The Fastify API serves the compiled Vite application and its client-side route fallback, keeping browser, API, and authentication requests on the same origin. The image builds Sharp against a custom libvips/libheif installation and fails its build if HEIF/HEIC input support is absent.
+The versioned `render.yaml` Blueprint creates a free Docker web service named `wakyak` in Render's Virginia region and connects it to the existing free Render Postgres resource named `postgres`. The database is referenced by name rather than managed by the Blueprint, so syncing the Blueprint does not attempt to create or replace it. The Fastify API serves the compiled Vite application and its client-side route fallback, keeping browser, API, and authentication requests on the same origin. The image builds Sharp against a custom libvips/libheif installation and fails its build if HEIF/HEIC input support is absent.
 
 Render's pre-deploy command is unavailable on free web services, so the container applies pending migrations before starting the API. A failed migration prevents that container from becoming healthy. The startup command honors Render's `PORT`; `/ready` is the HTTP health check and verifies PostgreSQL connectivity before Render routes traffic.
 
@@ -266,7 +266,7 @@ Create the Blueprint in the same Render workspace as the existing `postgres` dat
 
 Render's free Postgres instance is suitable only for this short-lived deployment: it has a 1 GB limit, no backups, and expires 30 days after creation. Render provides a 14-day upgrade grace period before deleting an expired database and its data.
 
-Use `https://wakyak-docker.onrender.com` for `API_ORIGIN`, `BETTER_AUTH_URL`, `TRUSTED_ORIGINS`, R2 CORS, and any Google OAuth callback enabled for this temporary Docker deployment. `TRUST_PROXY=true` is set because the service is behind Render's controlled proxy. Do not set `VITE_API_ORIGIN` in production; production web builds always use their own origin. A separate Render static-site service, persistent disk, and cross-origin production cookies are not required.
+Use `https://wakyak.onrender.com` for `API_ORIGIN`, `BETTER_AUTH_URL`, `TRUSTED_ORIGINS`, R2 CORS, and any Google OAuth callback enabled for this deployment. `TRUST_PROXY=true` is set because the service is behind Render's controlled proxy. Do not set `VITE_API_ORIGIN` in production; production web builds always use their own origin. A separate Render static-site service, persistent disk, and cross-origin production cookies are not required.
 
 ## Common failures
 

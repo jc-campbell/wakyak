@@ -1,7 +1,7 @@
 services:
   - type: web
     runtime: docker
-    name: wakyak-docker
+    name: wakyak
     region: virginia
     plan: free
     dockerfilePath: ./Dockerfile
@@ -12,11 +12,11 @@ services:
       - key: NODE_ENV
         value: production
       - key: API_ORIGIN
-        value: https://wakyak-docker.onrender.com
+        value: https://wakyak.onrender.com
       - key: BETTER_AUTH_URL
-        value: https://wakyak-docker.onrender.com
+        value: https://wakyak.onrender.com
       - key: TRUSTED_ORIGINS
-        value: https://wakyak-docker.onrender.com
+        value: https://wakyak.onrender.com
       - key: TRUST_PROXY
         value: "true"
       - key: BODY_LIMIT_BYTES
