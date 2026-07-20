@@ -51,4 +51,4 @@ WORKDIR /app
 RUN corepack enable && corepack install --global pnpm@10.33.2
 COPY --from=build /app /app
 EXPOSE 4000
-CMD ["sh", "-c", "API_HOST=0.0.0.0 API_PORT=${PORT:-4000} exec pnpm --filter @wakyak/api start"]
+CMD ["sh", "-c", "pnpm db:migrate:deploy && API_HOST=0.0.0.0 API_PORT=${PORT:-4000} exec pnpm --filter @wakyak/api start"]

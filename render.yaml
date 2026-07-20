@@ -1,12 +1,11 @@
 services:
   - type: web
     runtime: docker
-    name: wakyak
+    name: wakyak-docker
     region: virginia
-    plan: starter
+    plan: free
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    preDeployCommand: pnpm db:migrate:deploy
     healthCheckPath: /ready
     autoDeployTrigger: checksPass
     maxShutdownDelaySeconds: 60
@@ -14,11 +13,11 @@ services:
       - key: NODE_ENV
         value: production
       - key: API_ORIGIN
-        value: https://wakyak.onrender.com
+        value: https://wakyak-docker.onrender.com
       - key: BETTER_AUTH_URL
-        value: https://wakyak.onrender.com
+        value: https://wakyak-docker.onrender.com
       - key: TRUSTED_ORIGINS
-        value: https://wakyak.onrender.com
+        value: https://wakyak-docker.onrender.com
       - key: TRUST_PROXY
         value: "true"
       - key: BODY_LIMIT_BYTES
